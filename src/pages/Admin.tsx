@@ -6,7 +6,7 @@ import {
   Search, MapPin, Phone, Globe, Save, CheckCircle, 
   Trash2, PhoneCall, Database, AlertCircle, RefreshCw, 
   TrendingUp, Users, CheckSquare, FileText, ArrowLeft, 
-  ExternalLink, Copy, Settings, Check, Info, PlusCircle, Filter, Sliders
+  ExternalLink, Copy, Settings, Check, Info, PlusCircle, Filter, Sliders, HelpCircle
 } from 'lucide-react';
 import { leadService, ProspectLead, isSupabaseConfigured } from '@/lib/supabase';
 import { showSuccess, showError } from '@/utils/toast';
@@ -45,6 +45,7 @@ export default function Admin() {
   const [googleApiKey, setGoogleApiKey] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [isGoogleLoaded, setIsGoogleLoaded] = useState(false);
+  const [useGoogleApi, setUseGoogleApi] = useState<boolean>(true); // Controle de Ativo/Inativo da API
 
   // Estados de Controle e Resultados
   const [isScanning, setIsScanning] = useState(false);
@@ -70,8 +71,12 @@ export default function Admin() {
   // Carregar chave de API do Google e Leads salvos ao iniciar
   useEffect(() => {
     const savedKey = localStorage.getItem('acioli_google_api_key') || '';
+    const savedUseGoogle = localStorage.getItem('acioli_use_google_api') !== 'false';
+    
     setGoogleApiKey(savedKey);
-    if (savedKey) {
+    setUseGoogleApi(savedUseGoogle);
+    
+    if (savedKey && savedUseGoogle) {
       loadGoogleMapsScript(savedKey);
     }
     loadSavedLeads();
@@ -120,11 +125,27 @@ export default function Admin() {
     localStorage.setItem('acioli_google_api_key', googleApiKey);
     if (googleApiKey.trim()) {
       loadGoogleMapsScript(googleApiKey.trim());
+      localStorage.setItem('acioli_use_google_api', 'true');
+      setUseGoogleApi(true);
     } else {
       setIsGoogleLoaded(false);
       showSuccess("Chave de API removida.");
     }
     setShowSettings(false);
+  };
+
+  // Alternar uso da API do Google
+  const handleToggleGoogleApi = () => {
+    const newValue = !useGoogleApi;
+    setUseGoogleApi(newValue);
+    localStorage.setItem('acioli_use_google_api', String(newValue));
+    
+    if (newValue && googleApiKey.trim()) {
+      loadGoogleMapsScript(googleApiKey.trim());
+      showSuccess("API do Google Maps ativada!");
+    } else if (!newValue) {
+      showSuccess("Modo de Simulação Inteligente ativado!");
+    }
   };
 
   // Carregar leads salvos
@@ -261,7 +282,7 @@ export default function Admin() {
 
     const searchQuery = customQuery.trim() || 'Empresas';
 
-    if (isGoogleLoaded && window.google && window.google.maps) {
+    if (useGoogleApi && isGoogleLoaded && window.google && window.google.maps) {
       setScanProgress("Geocodificando endereço de partida...");
       try {
         const location = await geocodeAddressWithGoogle(cepOrAddress);
@@ -478,7 +499,7 @@ export default function Admin() {
   const handleUpdateStatus = async (id: string, status: ProspectLead['status']) => {
     const notes = editingNotes[id] || '';
     await leadService.updateLeadStatus(id, status, notes);
-    showSuccess("Status atualizado!");
+    showSuccess("Status updated!");
     loadSavedLeads();
   };
 
@@ -551,16 +572,31 @@ export default function Admin() {
               <span>Cadastrar Lead Manual</span>
             </button>
 
+            {/* Botão de Alternar API do Google */}
+            {googleApiKey && (
+              <button
+                onClick={handleToggleGoogleApi}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full border text-xs font-mono transition-all ${
+                  useGoogleApi 
+                    ? 'bg-[#00c868]/10 border-[#00c868]/30 text-[#00c868] hover:bg-[#00c868]/20' 
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${useGoogleApi ? 'bg-[#00c868] animate-pulse' : 'bg-zinc-600'}`} />
+                <span>{useGoogleApi ? 'Google API: LIGADA' : 'Google API: DESLIGADA'}</span>
+              </button>
+            )}
+
             <button
               onClick={() => setShowSettings(!showSettings)}
               className={`flex items-center gap-2 px-4 py-2 rounded-full border text-xs font-mono transition-all ${
-                isGoogleLoaded 
+                isGoogleLoaded && useGoogleApi
                   ? 'bg-[#00c868]/10 border-[#00c868]/30 text-[#00c868] hover:bg-[#00c868]/20' 
                   : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
               }`}
             >
               <Settings className="w-4 h-4" />
-              <span>{isGoogleLoaded ? 'Google API Ativa' : 'Configurar Google API'}</span>
+              <span>{isGoogleLoaded && useGoogleApi ? 'Google API Ativa' : 'Configurar Google API'}</span>
             </button>
 
             <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border text-xs font-mono ${
@@ -694,25 +730,47 @@ export default function Admin() {
 
         {/* Painel de Configurações da API do Google */}
         {showSettings && (
-          <ScrollReveal className="bg-zinc-950/80 border border-zinc-850 p-6 rounded-3xl space-y-4">
-            <div className="flex items-start gap-3">
+          <ScrollReveal className="bg-zinc-950/90 border border-zinc-850 p-8 rounded-3xl space-y-6 shadow-2xl">
+            <div className="flex items-start gap-3 border-b border-zinc-900 pb-4">
               <Info className="w-5 h-5 text-[#00c868] shrink-0 mt-0.5" />
               <div className="space-y-1">
-                <h3 className="text-sm font-bold text-white">Como funciona a busca real do Google Maps?</h3>
+                <h3 className="text-base font-bold text-white">Configuração da API do Google Maps</h3>
                 <p className="text-xs text-zinc-400 leading-relaxed">
-                  Para buscar empresas reais em tempo real, o sistema utiliza a API oficial do Google Places. Insira sua chave de API abaixo. Ela fica salva de forma 100% segura apenas no seu navegador (localStorage). Se não tiver uma chave, o sistema rodará em modo de simulação inteligente.
+                  Para buscar empresas reais em tempo real, o sistema utiliza a API oficial do Google Places. Insira sua chave de API abaixo. Ela fica salva de forma 100% segura apenas no seu navegador (localStorage).
                 </p>
               </div>
             </div>
 
-            <form onSubmit={handleSaveApiKey} className="flex flex-col sm:flex-row gap-3 items-end">
+            {/* Guia Passo a Passo para o Usuário */}
+            <div className="bg-zinc-900/30 border border-zinc-900 p-5 rounded-2xl space-y-4">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-[#00c868] flex items-center gap-1.5">
+                <HelpCircle className="w-4 h-4" />
+                Como gerar sua chave de API do Google Maps (Passo a Passo):
+              </h4>
+              <ol className="list-decimal list-inside text-xs text-zinc-400 space-y-2.5 leading-relaxed">
+                <li>Acesse o <a href="https://console.cloud.google.com/" target="_blank" rel="noopener noreferrer" className="text-[#00c868] underline">Google Cloud Console</a> e faça login com sua conta Google.</li>
+                <li>Crie um novo projeto (ou selecione um existente) no topo da página.</li>
+                <li>No menu lateral esquerdo, vá em <strong>APIs e Serviços > Biblioteca</strong>.</li>
+                <li>Busque e ative as seguintes APIs:
+                  <ul className="list-disc list-inside pl-5 mt-1 space-y-1 text-zinc-500">
+                    <li><strong>Places API</strong> (Necessária para buscar as empresas)</li>
+                    <li><strong>Geocoding API</strong> (Necessária para converter CEP/Endereço em coordenadas)</li>
+                  </ul>
+                </li>
+                <li>Após ativar, vá em <strong>APIs e Serviços > Credenciais</strong>.</li>
+                <li>Clique em <strong>+ Criar Credenciais</strong> no topo e selecione <strong>Chave de API</strong>.</li>
+                <li>Copie a chave gerada (ela começa com <code className="text-white font-mono bg-zinc-900 px-1.5 py-0.5 rounded">AIzaSy...</code>) e cole no campo abaixo.</li>
+              </ol>
+            </div>
+
+            <form onSubmit={handleSaveApiKey} className="flex flex-col sm:flex-row gap-3 items-end pt-2">
               <div className="flex-1 space-y-2">
                 <label className="block text-zinc-400 text-[10px] uppercase tracking-wider font-bold font-mono">
                   Google Maps API Key
                 </label>
                 <input
                   type="password"
-                  placeholder="AIzaSy..."
+                  placeholder="Cole sua chave AIzaSy... aqui"
                   value={googleApiKey}
                   onChange={(e) => setGoogleApiKey(e.target.value)}
                   className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#00c868]"
@@ -788,11 +846,11 @@ export default function Admin() {
             {/* Formulário de Busca com Autocomplete */}
             <div className="bg-zinc-950/40 border border-zinc-900 p-8 rounded-3xl space-y-6">
               
-              {!isGoogleLoaded && (
+              {(!isGoogleLoaded || !useGoogleApi) && (
                 <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 flex items-start gap-3 text-xs text-amber-400">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                   <p>
-                    <strong>Modo de Demonstração Ativo:</strong> Você está usando a simulação inteligente. Para buscar empresas reais do Google Maps em qualquer lugar do Brasil, clique em <strong>"Configurar Google API"</strong> no topo direito e insira sua chave.
+                    <strong>Modo de Simulação Inteligente Ativo:</strong> O sistema está gerando empresas com endereços reais resolvidos via ViaCEP/OpenStreetMap. Para buscar dados reais do Google Maps, clique em <strong>"Configurar Google API"</strong> no topo direito e siga o nosso guia passo a passo.
                   </p>
                 </div>
               )}
