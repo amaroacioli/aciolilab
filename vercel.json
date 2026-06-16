@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/copyacioli",
+      "destination": "/copyacioli.html"
+    },
+    {
+      "source": "/copyacioli/",
+      "destination": "/copyacioli.html"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
