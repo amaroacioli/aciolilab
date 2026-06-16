@@ -499,7 +499,7 @@ export default function Admin() {
   const handleUpdateStatus = async (id: string, status: ProspectLead['status']) => {
     const notes = editingNotes[id] || '';
     await leadService.updateLeadStatus(id, status, notes);
-    showSuccess("Status updated!");
+    showSuccess("Status atualizado!");
     loadSavedLeads();
   };
 
@@ -713,7 +713,7 @@ export default function Admin() {
                 <button
                   type="button"
                   onClick={() => setShowManualForm(false)}
-                  className="px-5 py-2.5 rounded-xl border border-zinc-800 text-zinc-400 hover:text-white text-xs uppercase tracking-wider transition-all"
+                  className="px-5 py-2.5 rounded-xl border border-zinc-850 text-zinc-400 hover:text-white text-xs uppercase tracking-wider transition-all"
                 >
                   Cancelar
                 </button>
