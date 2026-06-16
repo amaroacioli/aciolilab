@@ -6,7 +6,7 @@ import {
   Search, MapPin, Phone, Globe, Save, CheckCircle, 
   Trash2, PhoneCall, Database, AlertCircle, RefreshCw, 
   TrendingUp, Users, CheckSquare, FileText, ArrowLeft, 
-  ExternalLink, Copy, Settings, Check, Info, PlusCircle, Filter, Sliders, HelpCircle
+  ExternalLink, Copy, Settings, Check, Info, PlusCircle, Filter, Sliders, HelpCircle, Lock, User
 } from 'lucide-react';
 import { leadService, ProspectLead, isSupabaseConfigured } from '@/lib/supabase';
 import { showSuccess, showError } from '@/utils/toast';
@@ -31,6 +31,14 @@ interface AddressSuggestion {
 
 export default function Admin() {
   const navigate = useNavigate();
+  
+  // Estados de Autenticação
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+
+  // Estados do Painel
   const [activeTab, setActiveTab] = useState<'prospector' | 'saved'>('prospector');
   
   // Estados de Busca e Autocomplete
@@ -68,18 +76,23 @@ export default function Admin() {
 
   const autocompleteRef = useRef<HTMLDivElement>(null);
 
-  // Carregar chave de API do Google e Leads salvos ao iniciar
+  // Verificar autenticação e carregar configurações ao iniciar
   useEffect(() => {
-    const savedKey = localStorage.getItem('acioli_google_api_key') || '';
-    const savedUseGoogle = localStorage.getItem('acioli_use_google_api') !== 'false';
-    
-    setGoogleApiKey(savedKey);
-    setUseGoogleApi(savedUseGoogle);
-    
-    if (savedKey && savedUseGoogle) {
-      loadGoogleMapsScript(savedKey);
+    const authStatus = sessionStorage.getItem('acioli_admin_auth') === 'true';
+    setIsAuthenticated(authStatus);
+
+    if (authStatus) {
+      const savedKey = localStorage.getItem('acioli_google_api_key') || '';
+      const savedUseGoogle = localStorage.getItem('acioli_use_google_api') !== 'false';
+      
+      setGoogleApiKey(savedKey);
+      setUseGoogleApi(savedUseGoogle);
+      
+      if (savedKey && savedUseGoogle) {
+        loadGoogleMapsScript(savedKey);
+      }
+      loadSavedLeads();
     }
-    loadSavedLeads();
 
     // Fechar sugestões ao clicar fora
     const handleClickOutside = (event: MouseEvent) => {
@@ -89,7 +102,31 @@ export default function Admin() {
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [isAuthenticated]);
+
+  // Função de Login
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+
+    if (username === 'acioli' && password === 'aciolilouyse123***') {
+      sessionStorage.setItem('acioli_admin_auth', 'true');
+      setIsAuthenticated(true);
+      showSuccess("Acesso autorizado com sucesso!");
+    } else {
+      setLoginError("Usuário ou senha incorretos.");
+      showError("Credenciais inválidas.");
+    }
+  };
+
+  // Função de Logout
+  const handleLogout = () => {
+    sessionStorage.removeItem('acioli_admin_auth');
+    setIsAuthenticated(false);
+    setUsername('');
+    setPassword('');
+    showSuccess("Sessão encerrada.");
+  };
 
   // Carregar script do Google Maps dinamicamente
   const loadGoogleMapsScript = (key: string) => {
@@ -534,6 +571,94 @@ export default function Admin() {
     scheduled: savedLeads.filter(l => l.status === 'Agendado').length,
   };
 
+  // Se não estiver autenticado, renderiza a tela de login premium
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-black text-zinc-100 font-sans antialiased flex items-center justify-center p-6 relative overflow-hidden">
+        {/* Luz ambiente de fundo verde */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] bg-[#00c868]/5 rounded-full blur-[120px] pointer-events-none" />
+
+        <div className="w-full max-w-md relative group z-10">
+          {/* Efeito Glow Traseiro */}
+          <div className="absolute -inset-px bg-gradient-to-r from-[#00c868]/30 via-zinc-800 to-[#00c868]/10 rounded-3xl opacity-40 blur-sm group-hover:opacity-60 transition-all duration-700" />
+          
+          <div className="relative bg-zinc-950/90 rounded-3xl p-8 sm:p-10 border border-zinc-850/80 shadow-2xl space-y-8">
+            
+            {/* Header do Login */}
+            <div className="text-center space-y-2">
+              <div 
+                onClick={() => navigate('/')} 
+                className="cursor-pointer font-bold tracking-tight text-white text-2xl hover:opacity-90 transition-opacity inline-block"
+              >
+                acioli<span className="text-[#00c868] font-light">.lab</span>
+              </div>
+              <p className="text-zinc-500 text-xs uppercase tracking-widest font-mono font-bold">Painel de Controle</p>
+            </div>
+
+            {/* Formulário de Login */}
+            <form onSubmit={handleLogin} className="space-y-6">
+              {loginError && (
+                <div className="p-3.5 rounded-xl bg-red-500/5 border border-red-500/20 text-xs text-red-400 text-center font-medium">
+                  {loginError}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="block text-zinc-400 text-[10px] uppercase tracking-wider font-bold font-mono">Usuário</label>
+                <div className="relative">
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                  <input
+                    type="text"
+                    required
+                    placeholder="Digite seu usuário"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="w-full bg-zinc-900/30 border border-zinc-800 rounded-xl pl-11 pr-4 py-3 text-sm text-white focus:outline-none focus:border-[#00c868] focus:bg-zinc-900/60 transition-all placeholder:text-zinc-600"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-zinc-400 text-[10px] uppercase tracking-wider font-bold font-mono">Senha</label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                  <input
+                    type="password"
+                    required
+                    placeholder="Digite sua senha"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-zinc-900/30 border border-zinc-800 rounded-xl pl-11 pr-4 py-3 text-sm text-white focus:outline-none focus:border-[#00c868] focus:bg-zinc-900/60 transition-all placeholder:text-zinc-600"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full flex items-center justify-center gap-2 py-4 rounded-xl bg-[#00c868]/10 hover:bg-[#00c868] text-white hover:text-black border border-[#00c868]/20 hover:border-[#00c868] font-black text-xs uppercase tracking-widest transition-all duration-300 cursor-pointer"
+              >
+                <Lock className="w-4 h-4" />
+                <span>Acessar Painel</span>
+              </button>
+            </form>
+
+            {/* Botão de Voltar */}
+            <div className="text-center pt-2">
+              <button
+                onClick={() => navigate('/')}
+                className="text-xs text-zinc-500 hover:text-white transition-colors inline-flex items-center gap-1.5"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Voltar para Home</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-black text-zinc-100 font-sans antialiased selection:bg-white/10 selection:text-white relative overflow-hidden py-12 px-4 sm:px-6 lg:px-8">
       
@@ -599,14 +724,12 @@ export default function Admin() {
               <span>{isGoogleLoaded && useGoogleApi ? 'Google API Ativa' : 'Configurar Google API'}</span>
             </button>
 
-            <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border text-xs font-mono ${
-              isSupabaseConfigured 
-                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' 
-                : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-            }`}>
-              <Database className="w-4 h-4" />
-              <span>{isSupabaseConfigured ? 'Supabase Conectado' : 'Modo Local'}</span>
-            </div>
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 rounded-full border border-red-500/20 bg-red-500/5 text-red-400 text-xs font-bold uppercase tracking-wider hover:bg-red-500 hover:text-white transition-all cursor-pointer"
+            >
+              Sair
+            </button>
           </div>
         </div>
 
@@ -713,7 +836,7 @@ export default function Admin() {
                 <button
                   type="button"
                   onClick={() => setShowManualForm(false)}
-                  className="px-5 py-2.5 rounded-xl border border-zinc-850 text-zinc-400 hover:text-white text-xs uppercase tracking-wider transition-all"
+                  className="px-5 py-2.5 rounded-xl border border-zinc-800 text-zinc-400 hover:text-white text-xs uppercase tracking-wider transition-all"
                 >
                   Cancelar
                 </button>
