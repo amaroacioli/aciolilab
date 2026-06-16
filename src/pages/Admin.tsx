@@ -1,56 +1,115 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Search, MapPin, Phone, Globe, Save, CheckCircle, 
   Trash2, PhoneCall, Database, AlertCircle, RefreshCw, 
-  TrendingUp, Users, CheckSquare, FileText, ArrowLeft, ExternalLink
+  TrendingUp, Users, CheckSquare, FileText, ArrowLeft, 
+  ExternalLink, Copy, Settings, HelpCircle, Check, Info
 } from 'lucide-react';
 import { leadService, ProspectLead, isSupabaseConfigured } from '@/lib/supabase';
 import { showSuccess, showError } from '@/utils/toast';
 import ScrollReveal from '@/components/ScrollReveal';
 
-// Lista de nomes de empresas realistas por segmento para simulação inteligente
-const MOCK_BUSINESS_TEMPLATES: Record<string, { names: string[], phones: string[] }> = {
-  'Restaurantes & Cafés': {
-    names: ['Sabor & Arte Gourmet', 'Café do Ponto Recife', 'Cantina Di Napoli', 'Espaço Grill & Cia', 'Bistrô Central', 'Panela de Barro', 'Estação do Sabor', 'Doce Aliança Confeitaria'],
-    phones: ['81988776655', '81999887766', '81987654321', '81991223344', '81995554433', '81981112233']
-  },
-  'Oficinas & Serviços': {
-    names: ['Auto Mecânica Express', 'Oficina do Alemão', 'Centro Automotivo Aliança', 'Motopeças Recife', 'Eletro Ar Condicionado', 'Funilaria e Pintura Silva', 'Borracharia 24h'],
-    phones: ['81987112233', '81992334455', '81985443322', '81996778899', '81981229900']
-  },
-  'Estética & Beleza': {
-    names: ['Studio de Beleza VIP', 'Espaço Mulher & Cia', 'Barbearia Imperial', 'Clínica de Estética Renovare', 'Salão Harmonia', 'Esmalteria Premium', 'Cílios & Sobrancelhas Design'],
-    phones: ['81994556677', '81988110022', '81991334455', '81987556611', '81992887766']
-  },
-  'Saúde & Bem-Estar': {
-    names: ['Consultório Odontológico Sorrir', 'Clínica Médica Vida', 'Espaço Pilates & Saúde', 'Fisioterapia Integrada', 'Nutrição Ativa', 'Drogaria Popular', 'Studio Funcional Fit'],
-    phones: ['81995667788', '81986223344', '81991445566', '81988554433', '81993112233']
-  },
-  'Lojas & Comércio': {
-    names: ['Mercadinho Preço Bom', 'Boutique Elegance', 'Pet Shop Amigo Fiel', 'Depósito de Bebidas Central', 'Ótica Visão Clara', 'Floricultura Florescer', 'Papelaria e Presentes'],
-    phones: ['81997889900', '81985332211', '81992445566', '81988667788', '81991556677']
-  }
-};
+// Interface para sugestões de endereço do Nominatim
+interface AddressSuggestion {
+  display_name: string;
+  lat: string;
+  lon: string;
+}
 
 export default function Admin() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'prospector' | 'saved'>('prospector');
+  
+  // Estados de Busca e Autocomplete
   const [cepOrAddress, setCepOrAddress] = useState('');
+  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [customQuery, setCustomQuery] = useState('');
   const [selectedSegment, setSelectedSegment] = useState('Todos');
+  
+  // Estados de Configuração da API do Google
+  const [googleApiKey, setGoogleApiKey] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
+  const [isGoogleLoaded, setIsGoogleLoaded] = useState(false);
+
+  // Estados de Controle e Resultados
   const [isScanning, setIsScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState('');
   const [scannedLeads, setScannedLeads] = useState<Omit<ProspectLead, 'id' | 'created_at'>[]>([]);
   const [savedLeads, setSavedLeads] = useState<ProspectLead[]>([]);
   const [editingNotes, setEditingNotes] = useState<{ [key: string]: string }>({});
+
+  const autocompleteRef = useRef<HTMLDivElement>(null);
+
+  // Carregar chave de API do Google e Leads salvos ao iniciar
+  useEffect(() => {
+    const savedKey = localStorage.getItem('acioli_google_api_key') || '';
+    setGoogleApiKey(savedKey);
+    if (savedKey) {
+      loadGoogleMapsScript(savedKey);
+    }
+    loadSavedLeads();
+
+    // Fechar sugestões ao clicar fora
+    const handleClickOutside = (event: MouseEvent) => {
+      if (autocompleteRef.current && !autocompleteRef.current.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Carregar script do Google Maps dinamicamente
+  const loadGoogleMapsScript = (key: string) => {
+    if (window.google && window.google.maps) {
+      setIsGoogleLoaded(true);
+      return;
+    }
+
+    // Remover script anterior se houver
+    const existingScript = document.getElementById('google-maps-sdk');
+    if (existingScript) {
+      existingScript.remove();
+    }
+
+    const script = document.createElement('script');
+    script.id = 'google-maps-sdk';
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      setIsGoogleLoaded(true);
+      showSuccess("Google Maps API carregada com sucesso!");
+    };
+    script.onerror = () => {
+      setIsGoogleLoaded(false);
+      showError("Erro ao carregar a API do Google Maps. Verifique sua chave.");
+    };
+    document.head.appendChild(script);
+  };
+
+  // Salvar chave de API do Google
+  const handleSaveApiKey = (e: React.FormEvent) => {
+    e.preventDefault();
+    localStorage.setItem('acioli_google_api_key', googleApiKey);
+    if (googleApiKey.trim()) {
+      loadGoogleMapsScript(googleApiKey.trim());
+    } else {
+      setIsGoogleLoaded(false);
+      showSuccess("Chave de API removida.");
+    }
+    setShowSettings(false);
+  };
 
   // Carregar leads salvos
   const loadSavedLeads = async () => {
     const leads = await leadService.getLeads();
     setSavedLeads(leads);
     
-    // Inicializar notas de edição
     const notesMap: { [key: string]: string } = {};
     leads.forEach(lead => {
       notesMap[lead.id] = lead.notes || '';
@@ -58,12 +117,38 @@ export default function Admin() {
     setEditingNotes(notesMap);
   };
 
-  useEffect(() => {
-    loadSavedLeads();
-  }, []);
+  // Buscar sugestões de endereço (Nominatim API - Gratuito e sem CORS)
+  const handleAddressChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setCepOrAddress(value);
 
-  // Simular varredura do Google Maps por empresas sem website
-  const handleScan = (e: React.FormEvent) => {
+    if (value.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(value)}&countrycodes=br&limit=5`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setSuggestions(data);
+        setShowSuggestions(true);
+      }
+    } catch (err) {
+      console.error("Erro ao buscar sugestões de endereço:", err);
+    }
+  };
+
+  // Selecionar sugestão de endereço
+  const handleSelectSuggestion = (suggestion: AddressSuggestion) => {
+    setCepOrAddress(suggestion.display_name);
+    setShowSuggestions(false);
+  };
+
+  // Realizar busca real no Google Places ou simulação de alta fidelidade
+  const handleScan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cepOrAddress.trim()) {
       showError("Por favor, informe um CEP ou Endereço para buscar.");
@@ -73,53 +158,131 @@ export default function Admin() {
     setIsScanning(true);
     setScannedLeads([]);
 
-    // Simular tempo de resposta da API do Google Places
-    setTimeout(() => {
-      const segmentsToScan = selectedSegment === 'Todos' 
-        ? Object.keys(MOCK_BUSINESS_TEMPLATES) 
-        : [selectedSegment];
+    const searchQuery = customQuery.trim() || (selectedSegment === 'Todos' ? 'Empresas' : selectedSegment);
 
-      const results: Omit<ProspectLead, 'id' | 'created_at'>[] = [];
+    if (isGoogleLoaded && window.google && window.google.maps) {
+      setScanProgress("Conectando ao Google Places...");
+      try {
+        const dummy = document.createElement('div');
+        const service = new google.maps.places.PlacesService(dummy);
 
-      segmentsToScan.forEach(segment => {
-        const template = MOCK_BUSINESS_TEMPLATES[segment];
-        // Selecionar de 2 a 4 empresas aleatórias por segmento para simular a busca local
-        const count = Math.floor(Math.random() * 3) + 2;
-        const shuffledNames = [...template.names].sort(() => 0.5 - Math.random());
-        const shuffledPhones = [...template.phones].sort(() => 0.5 - Math.random());
+        const request: google.maps.places.TextSearchRequest = {
+          query: `${searchQuery} em ${cepOrAddress}`,
+        };
 
-        for (let i = 0; i < Math.min(count, shuffledNames.length); i++) {
-          // Gerar um número de telefone realista
-          const phone = shuffledPhones[i % shuffledPhones.length];
-          // Gerar um endereço fictício baseado no CEP/Endereço digitado
-          const streetNum = Math.floor(Math.random() * 900) + 100;
-          const address = `${shuffledNames[i].split(' ')[0]} - Av. Principal, ${streetNum}, Região de ${cepOrAddress}`;
+        service.textSearch(request, async (results, status) => {
+          if (status !== google.maps.places.PlacesServiceStatus.OK || !results) {
+            showError("Nenhum resultado encontrado ou erro na API do Google.");
+            setIsScanning(false);
+            return;
+          }
 
-          results.push({
-            name: shuffledNames[i],
-            phone: phone,
-            segment: segment,
-            address: address,
+          setScanProgress(`Encontradas ${results.length} empresas. Analisando detalhes e websites...`);
+          const processedResults: Omit<ProspectLead, 'id' | 'created_at'>[] = [];
+
+          // Buscar detalhes de cada lugar para obter telefone e website real
+          // Limitamos a 12 resultados para evitar lentidão e excesso de requisições de cota
+          const placesToFetch = results.slice(0, 12);
+
+          for (let i = 0; i < placesToFetch.length; i++) {
+            const place = placesToFetch[i];
+            setScanProgress(`Analisando (${i + 1}/${placesToFetch.length}): ${place.name}`);
+
+            await new Promise<void>((resolveDetail) => {
+              service.getDetails(
+                {
+                  placeId: place.place_id || '',
+                  fields: ['name', 'formatted_phone_number', 'website', 'formatted_address', 'types']
+                },
+                (details, detailStatus) => {
+                  if (detailStatus === google.maps.places.PlacesServiceStatus.OK && details) {
+                    const hasWebsite = !!details.website;
+                    
+                    // Adiciona à lista (focando em empresas sem website, mas permitindo ver todas)
+                    processedResults.push({
+                      name: details.name || place.name || '',
+                      phone: details.formatted_phone_number || 'Não informado',
+                      segment: searchQuery,
+                      address: details.formatted_address || place.formatted_address || 'Endereço não disponível',
+                      cep: cepOrAddress,
+                      has_website: hasWebsite,
+                      status: 'Pendente',
+                      notes: ''
+                    });
+                  } else {
+                    // Fallback se falhar os detalhes
+                    processedResults.push({
+                      name: place.name || '',
+                      phone: 'Não informado',
+                      segment: searchQuery,
+                      address: place.formatted_address || 'Endereço não disponível',
+                      cep: cepOrAddress,
+                      has_website: false,
+                      status: 'Pendente',
+                      notes: ''
+                    });
+                  }
+                  // Pequeno delay para respeitar limites de taxa da API
+                  setTimeout(resolveDetail, 200);
+                }
+              );
+            });
+          }
+
+          setScannedLeads(processedResults);
+          setIsScanning(false);
+          showSuccess(`Varredura concluída! ${processedResults.length} empresas reais carregadas.`);
+        });
+
+      } catch (err) {
+        console.error(err);
+        showError("Erro durante a busca no Google Places.");
+        setIsScanning(false);
+      }
+    } else {
+      // Fallback de Simulação Inteligente e Realista se não houver chave de API
+      setScanProgress("Iniciando simulação de varredura local...");
+      setTimeout(() => {
+        const mockTemplates: Record<string, string[]> = {
+          'Restaurantes': ['Sabor & Arte Gourmet', 'Cantina Di Napoli', 'Bistrô Central', 'Estação do Sabor', 'Pizzaria Bella Italia', 'Churrascaria Boi Na Brasa'],
+          'Oficinas': ['Auto Mecânica Express', 'Oficina do Alemão', 'Centro Automotivo Aliança', 'Motopeças Brasil', 'Funilaria Silva'],
+          'Estética': ['Studio de Beleza VIP', 'Espaço Mulher', 'Barbearia Imperial', 'Clínica Renovare', 'Esmalteria Premium'],
+          'Saúde': ['Consultório Odontológico Sorrir', 'Clínica Médica Vida', 'Espaço Pilates', 'Fisioterapia Integrada'],
+          'Lojas': ['Mercadinho Preço Bom', 'Boutique Elegance', 'Pet Shop Amigo Fiel', 'Ótica Visão Clara', 'Floricultura Florescer']
+        };
+
+        const segmentKey = Object.keys(mockTemplates).find(k => searchQuery.toLowerCase().includes(k.toLowerCase())) || 'Lojas';
+        const names = mockTemplates[segmentKey] || mockTemplates['Lojas'];
+        
+        const results: Omit<ProspectLead, 'id' | 'created_at'>[] = names.map((name, i) => {
+          const ddd = cepOrAddress.includes('Recife') || cepOrAddress.includes('PE') ? '81' : '11';
+          const phoneNum = Math.floor(10000000 + Math.random() * 90000000);
+          const streetNum = Math.floor(Math.random() * 1500) + 100;
+          
+          return {
+            name: name,
+            phone: `(${ddd}) 9${phoneNum.toString().slice(0, 4)}-${phoneNum.toString().slice(4)}`,
+            segment: searchQuery,
+            address: `Rua das Flores, ${streetNum} - Bairro Central, ${cepOrAddress}, Brasil`,
             cep: cepOrAddress,
-            has_website: false, // Foco em empresas SEM website
+            has_website: Math.random() > 0.7, // Algumas simulam ter site para você ver a diferença
             status: 'Pendente',
             notes: ''
-          });
-        }
-      });
+          };
+        });
 
-      setScannedLeads(results);
-      setIsScanning(false);
-      showSuccess(`Varredura concluída! Encontramos ${results.length} empresas sem website nesta região.`);
-    }, 2500);
+        setScannedLeads(results);
+        setIsScanning(false);
+        showSuccess(`Simulação concluída! Encontramos ${results.length} empresas simuladas para esta região.`);
+      }, 2000);
+    }
   };
 
-  // Salvar lead individual no Supabase / LocalStorage
+  // Salvar lead individual
   const handleSaveLead = async (lead: Omit<ProspectLead, 'id' | 'created_at'>, index: number) => {
     try {
       await leadService.saveLead(lead);
       showSuccess(`Empresa "${lead.name}" salva com sucesso!`);
-      // Remover da lista de escaneados para evitar duplicidade visual
       setScannedLeads(prev => prev.filter((_, i) => i !== index));
       loadSavedLeads();
     } catch (err) {
@@ -127,7 +290,7 @@ export default function Admin() {
     }
   };
 
-  // Salvar todos os leads escaneados de uma vez
+  // Salvar todos os leads escaneados
   const handleSaveAll = async () => {
     if (scannedLeads.length === 0) return;
     try {
@@ -167,6 +330,12 @@ export default function Admin() {
     }
   };
 
+  // Copiar texto para a área de transferência
+  const copyToClipboard = (text: string, message: string) => {
+    navigator.clipboard.writeText(text);
+    showSuccess(message);
+  };
+
   // Estatísticas rápidas
   const stats = {
     total: savedLeads.length,
@@ -193,26 +362,85 @@ export default function Admin() {
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
-              <span className="text-xs uppercase tracking-[0.25em] text-[#00c868] font-bold font-mono">ACIOLI.LAB ADMIN</span>
+              <span className="text-xs uppercase tracking-[0.25em] text-[#00c868] font-bold font-mono">PROSPECÇÃO ATIVA</span>
             </div>
             <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-white">
-              Painel de Prospecção Local
+              Painel de Prospecção Nacional
             </h1>
             <p className="text-zinc-400 text-sm font-light">
-              Identifique empresas sem presença digital (sem website) no Google Maps para realizar abordagens comerciais de alto impacto.
+              Busque empresas reais no Google Maps em qualquer cidade ou estado do Brasil. Filtre por negócios sem website e inicie suas ligações.
             </p>
           </div>
 
-          {/* Status da Conexão com o Supabase */}
-          <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border text-xs font-mono ${
-            isSupabaseConfigured 
-              ? 'bg-[#00c868]/10 border-[#00c868]/30 text-[#00c868]' 
-              : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-          }`}>
-            <Database className="w-4 h-4" />
-            <span>{isSupabaseConfigured ? 'Supabase Conectado' : 'Modo Local (LocalStorage)'}</span>
+          {/* Botões de Configuração e Status */}
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full border text-xs font-mono transition-all ${
+                isGoogleLoaded 
+                  ? 'bg-[#00c868]/10 border-[#00c868]/30 text-[#00c868] hover:bg-[#00c868]/20' 
+                  : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Settings className="w-4 h-4" />
+              <span>{isGoogleLoaded ? 'Google API Ativa' : 'Configurar Google API'}</span>
+            </button>
+
+            <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border text-xs font-mono ${
+              isSupabaseConfigured 
+                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' 
+                : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+            }`}>
+              <Database className="w-4 h-4" />
+              <span>{isSupabaseConfigured ? 'Supabase Conectado' : 'Modo Local'}</span>
+            </div>
           </div>
         </div>
+
+        {/* Painel de Configurações da API do Google */}
+        {showSettings && (
+          <ScrollReveal className="bg-zinc-950/80 border border-zinc-850 p-6 rounded-3xl space-y-4">
+            <div className="flex items-start gap-3">
+              <Info className="w-5 h-5 text-[#00c868] shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-white">Como funciona a busca real do Google Maps?</h3>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Para buscar empresas reais em tempo real, o sistema utiliza a API oficial do Google Places. Insira sua chave de API abaixo. Ela fica salva de forma 100% segura apenas no seu navegador (localStorage). Se não tiver uma chave, o sistema rodará em modo de simulação inteligente.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveApiKey} className="flex flex-col sm:flex-row gap-3 items-end">
+              <div className="flex-1 space-y-2">
+                <label className="block text-zinc-400 text-[10px] uppercase tracking-wider font-bold font-mono">
+                  Google Maps API Key
+                </label>
+                <input
+                  type="password"
+                  placeholder="AIzaSy..."
+                  value={googleApiKey}
+                  onChange={(e) => setGoogleApiKey(e.target.value)}
+                  className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#00c868]"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  className="px-6 py-3 rounded-xl bg-[#00c868] text-black font-bold text-xs uppercase tracking-wider hover:bg-[#00b05b] transition-all cursor-pointer"
+                >
+                  Salvar Chave
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSettings(false)}
+                  className="px-4 py-3 rounded-xl border border-zinc-800 text-zinc-400 hover:text-white text-xs uppercase tracking-wider transition-all"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </ScrollReveal>
+        )}
 
         {/* Cards de Estatísticas */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -262,47 +490,78 @@ export default function Admin() {
         {/* Conteúdo das Abas */}
         {activeTab === 'prospector' ? (
           <div className="space-y-8">
-            {/* Formulário de Busca */}
-            <div className="bg-zinc-950/40 border border-zinc-900 p-8 rounded-3xl">
-              <form onSubmit={handleScan} className="grid grid-cols-1 md:grid-cols-12 gap-6 items-end">
-                <div className="md:col-span-6 space-y-2">
+            {/* Formulário de Busca com Autocomplete */}
+            <div className="bg-zinc-950/40 border border-zinc-900 p-8 rounded-3xl space-y-6">
+              
+              {!isGoogleLoaded && (
+                <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 flex items-start gap-3 text-xs text-amber-400">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <p>
+                    <strong>Modo de Demonstração Ativo:</strong> Você está usando a simulação inteligente. Para buscar empresas reais do Google Maps em qualquer lugar do Brasil, clique em <strong>"Configurar Google API"</strong> no topo direito e insira sua chave.
+                  </p>
+                </div>
+              )}
+
+              <form onSubmit={handleScan} className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end">
+                
+                {/* Input de Endereço com Autocomplete */}
+                <div className="lg:col-span-5 space-y-2 relative" ref={autocompleteRef}>
                   <label className="block text-zinc-400 text-xs uppercase tracking-wider font-bold font-mono">
-                    CEP, Bairro ou Endereço de Busca
+                    Cidade, Bairro ou CEP (Brasil Inteiro)
                   </label>
                   <div className="relative">
                     <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
                     <input
                       type="text"
                       required
-                      placeholder="Ex: 51020-000, Boa Viagem, Recife"
+                      placeholder="Ex: Boa Viagem, Recife ou 01310-100"
                       value={cepOrAddress}
-                      onChange={(e) => setCepOrAddress(e.target.value)}
+                      onChange={handleAddressChange}
+                      onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                      className="w-full bg-zinc-900/30 border border-zinc-800 rounded-xl pl-12 pr-4 py-3.5 text-base text-white focus:outline-none focus:border-[#00c868] focus:bg-zinc-900/60 transition-all placeholder:text-zinc-600"
+                    />
+                  </div>
+
+                  {/* Dropdown de Sugestões */}
+                  {showSuggestions && suggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 mt-2 bg-zinc-950 border border-zinc-850 rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto divide-y divide-zinc-900">
+                      {suggestions.map((suggestion, idx) => (
+                        <div
+                          key={idx}
+                          onClick={() => handleSelectSuggestion(suggestion)}
+                          className="p-3 text-xs text-zinc-300 hover:bg-zinc-900 hover:text-white cursor-pointer transition-colors flex items-start gap-2"
+                        >
+                          <MapPin className="w-3.5 h-3.5 text-[#00c868] shrink-0 mt-0.5" />
+                          <span>{suggestion.display_name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Termo de Busca Personalizado */}
+                <div className="lg:col-span-4 space-y-2">
+                  <label className="block text-zinc-400 text-xs uppercase tracking-wider font-bold font-mono">
+                    O que deseja buscar? (Ex: Oficinas, Dentistas, Academias)
+                  </label>
+                  <div className="relative">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
+                    <input
+                      type="text"
+                      placeholder="Ex: Restaurantes, Clínicas, Lojas"
+                      value={customQuery}
+                      onChange={(e) => setCustomQuery(e.target.value)}
                       className="w-full bg-zinc-900/30 border border-zinc-800 rounded-xl pl-12 pr-4 py-3.5 text-base text-white focus:outline-none focus:border-[#00c868] focus:bg-zinc-900/60 transition-all placeholder:text-zinc-600"
                     />
                   </div>
                 </div>
 
-                <div className="md:col-span-4 space-y-2">
-                  <label className="block text-zinc-400 text-xs uppercase tracking-wider font-bold font-mono">
-                    Segmento de Atuação
-                  </label>
-                  <select
-                    value={selectedSegment}
-                    onChange={(e) => setSelectedSegment(e.target.value)}
-                    className="w-full bg-zinc-900/30 border border-zinc-800 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-[#00c868] focus:bg-zinc-900/60 transition-all cursor-pointer"
-                  >
-                    <option value="Todos" className="bg-zinc-950">Todos os Segmentos</option>
-                    {Object.keys(MOCK_BUSINESS_TEMPLATES).map(seg => (
-                      <option key={seg} value={seg} className="bg-zinc-950">{seg}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="md:col-span-2">
+                {/* Segmentos Rápidos */}
+                <div className="lg:col-span-3">
                   <button
                     type="submit"
                     disabled={isScanning}
-                    className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-[#00c868] text-black font-black text-xs uppercase tracking-wider hover:bg-[#00b05b] transition-all disabled:opacity-50 cursor-pointer"
+                    className="w-full flex items-center justify-center gap-2 py-4 rounded-xl bg-[#00c868] text-black font-black text-xs uppercase tracking-wider hover:bg-[#00b05b] transition-all disabled:opacity-50 cursor-pointer"
                   >
                     {isScanning ? (
                       <>
@@ -312,99 +571,153 @@ export default function Admin() {
                     ) : (
                       <>
                         <Search className="w-4 h-4" />
-                        <span>Buscar</span>
+                        <span>Buscar no Google Maps</span>
                       </>
                     )}
                   </button>
                 </div>
               </form>
+
+              {isScanning && (
+                <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono bg-zinc-900/20 p-3 rounded-xl border border-zinc-900">
+                  <RefreshCw className="w-4 h-4 animate-spin text-[#00c868]" />
+                  <span>{scanProgress}</span>
+                </div>
+              )}
             </div>
 
             {/* Resultados da Busca */}
             {scannedLeads.length > 0 && (
               <ScrollReveal className="space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <h3 className="text-lg font-bold text-white flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-[#00c868] animate-pulse" />
-                    Empresas sem Website Encontradas ({scannedLeads.length})
+                    Resultados Encontrados ({scannedLeads.length})
                   </h3>
                   <button
                     onClick={handleSaveAll}
-                    className="flex items-center gap-2 px-4 py-2 rounded-full border border-[#00c868]/30 bg-[#00c868]/10 text-[#00c868] text-xs font-bold uppercase tracking-wider hover:bg-[#00c868] hover:text-black transition-all"
+                    className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-full border border-[#00c868]/30 bg-[#00c868]/10 text-[#00c868] text-xs font-bold uppercase tracking-wider hover:bg-[#00c868] hover:text-black transition-all"
                   >
                     <Save className="w-4 h-4" />
-                    <span>Salvar Todos na Lista</span>
+                    <span>Salvar Todos na Lista de Prospecção</span>
                   </button>
                 </div>
 
-                <div className="bg-zinc-950/60 border border-zinc-900 rounded-2xl overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-zinc-900 bg-zinc-900/20 text-zinc-400 text-xs font-mono uppercase tracking-wider">
-                          <th className="p-4">Empresa</th>
-                          <th className="p-4">Segmento</th>
-                          <th className="p-4">Telefone</th>
-                          <th className="p-4">Endereço</th>
-                          <th className="p-4 text-right">Ações</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-900 text-sm">
-                        {scannedLeads.map((lead, idx) => (
-                          <tr key={idx} className="hover:bg-zinc-900/20 transition-colors">
-                            <td className="p-4 font-bold text-white">{lead.name}</td>
-                            <td className="p-4">
-                              <span className="px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-800 text-xs text-zinc-400">
-                                {lead.segment}
-                              </span>
-                            </td>
-                            <td className="p-4 font-mono text-zinc-300">
-                              <a 
-                                href={`tel:${lead.phone}`} 
-                                className="hover:text-[#00c868] transition-colors flex items-center gap-1.5"
-                              >
-                                <Phone className="w-3.5 h-3.5 text-[#00c868]" />
-                                {lead.phone}
-                              </a>
-                            </td>
-                            <td className="p-4 text-zinc-500 text-xs max-w-xs truncate">{lead.address}</td>
-                            <td className="p-4 text-right">
-                              <div className="flex items-center justify-end gap-2">
-                                <a
-                                  href={`https://wa.me/55${lead.phone}?text=Olá! Vi sua empresa no Google Maps e notei que vocês não possuem um website oficial. Gostaria de apresentar uma proposta de design premium.`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-[#00c868] hover:border-[#00c868]/30 transition-all"
-                                  title="Chamar no WhatsApp"
-                                >
-                                  <ExternalLink className="w-4 h-4" />
-                                </a>
-                                <button
-                                  onClick={() => handleSaveLead(lead, idx)}
-                                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#00c868]/10 border border-[#00c868]/20 text-[#00c868] text-xs font-bold uppercase tracking-wider hover:bg-[#00c868] hover:text-black transition-all"
-                                >
-                                  <Save className="w-3.5 h-3.5" />
-                                  <span>Salvar</span>
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                {/* Grid de Cards de Resultados (Melhor visualização do endereço completo) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {scannedLeads.map((lead, idx) => (
+                    <div 
+                      key={idx} 
+                      className={`p-6 rounded-2xl border bg-zinc-950/60 transition-all flex flex-col justify-between space-y-6 ${
+                        lead.has_website 
+                          ? 'border-zinc-900 opacity-60' 
+                          : 'border-zinc-800 hover:border-[#00c868]/40 shadow-[0_10px_30px_rgba(0,0,0,0.5)]'
+                      }`}
+                    >
+                      <div className="space-y-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <h4 className="text-base font-bold text-white leading-tight">{lead.name}</h4>
+                            <span className="inline-block mt-1.5 px-2.5 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400 uppercase tracking-wider">
+                              {lead.segment}
+                            </span>
+                          </div>
+
+                          {/* Badge de Website */}
+                          {lead.has_website ? (
+                            <span className="px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-bold uppercase tracking-wider shrink-0">
+                              Possui Site
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-bold uppercase tracking-wider shrink-0">
+                              Sem Website
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Endereço Completo */}
+                        <div className="space-y-1.5 bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
+                          <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider flex items-center gap-1">
+                            <MapPin className="w-3 h-3 text-[#00c868]" />
+                            Endereço Completo
+                          </p>
+                          <p className="text-xs text-zinc-300 leading-relaxed font-light">
+                            {lead.address}
+                          </p>
+                          <button
+                            onClick={() => copyToClipboard(lead.address, "Endereço copiado!")}
+                            className="text-[10px] text-zinc-500 hover:text-white transition-colors flex items-center gap-1 mt-1"
+                          >
+                            <Copy className="w-3 h-3" />
+                            <span>Copiar Endereço</span>
+                          </button>
+                        </div>
+
+                        {/* Telefone Comercial */}
+                        <div className="flex items-center justify-between bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
+                          <div className="space-y-0.5">
+                            <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Telefone Comercial</p>
+                            <p className="text-sm font-mono text-white font-bold">{lead.phone}</p>
+                          </div>
+                          {lead.phone !== 'Não informado' && (
+                            <button
+                              onClick={() => copyToClipboard(lead.phone, "Telefone copiado!")}
+                              className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
+                              title="Copiar Telefone"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Ações do Card */}
+                      <div className="pt-4 border-t border-zinc-900 flex items-center justify-between gap-3">
+                        <a
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lead.name} ${lead.address}`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-zinc-500 hover:text-white transition-colors flex items-center gap-1"
+                        >
+                          <span>Ver no Google Maps</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+
+                        <div className="flex items-center gap-2">
+                          {lead.phone !== 'Não informado' && (
+                            <a
+                              href={`https://wa.me/55${lead.phone.replace(/\D/g, '')}?text=Olá! Vi sua empresa no Google Maps e notei que vocês não possuem um website oficial. Gostaria de apresentar uma proposta de design premium.`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-[#00c868] hover:border-[#00c868]/30 transition-all"
+                              title="Chamar no WhatsApp"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                            </a>
+                          )}
+                          <button
+                            onClick={() => handleSaveLead(lead, idx)}
+                            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#00c868]/10 border border-[#00c868]/20 text-[#00c868] text-xs font-bold uppercase tracking-wider hover:bg-[#00c868] hover:text-black transition-all"
+                          >
+                            <Save className="w-3.5 h-3.5" />
+                            <span>Salvar Lead</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </ScrollReveal>
             )}
 
             {/* Estado Vazio */}
             {scannedLeads.length === 0 && !isScanning && (
-              <div className="text-center py-16 border border-dashed border-zinc-900 rounded-3xl space-y-4">
+              <div className="text-center py-20 border border-dashed border-zinc-900 rounded-3xl space-y-4">
                 <Search className="w-12 h-12 text-zinc-700 mx-auto" />
                 <div className="space-y-1">
-                  <p className="text-zinc-400 font-medium">Nenhuma varredura ativa</p>
+                  <p className="text-zinc-400 font-medium">Nenhuma busca ativa</p>
                   <p className="text-zinc-600 text-xs max-w-md mx-auto">
-                    Informe um CEP ou endereço acima para buscar empresas locais que não possuem website vinculado ao Google Maps.
+                    Digite uma cidade, bairro ou CEP e o tipo de estabelecimento que deseja prospectar para carregar dados reais do Google Maps.
                   </p>
                 </div>
               </div>
@@ -414,107 +727,139 @@ export default function Admin() {
           /* Aba de Leads Salvos */
           <div className="space-y-6">
             {savedLeads.length > 0 ? (
-              <div className="bg-zinc-950/60 border border-zinc-900 rounded-2xl overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-zinc-900 bg-zinc-900/20 text-zinc-400 text-xs font-mono uppercase tracking-wider">
-                        <th className="p-4">Empresa</th>
-                        <th className="p-4">Segmento</th>
-                        <th className="p-4">Contato</th>
-                        <th className="p-4">Status</th>
-                        <th className="p-4">Anotações / Histórico</th>
-                        <th className="p-4 text-right">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-900 text-sm">
-                      {savedLeads.map((lead) => (
-                        <tr key={lead.id} className="hover:bg-zinc-900/10 transition-colors">
-                          <td className="p-4">
-                            <div className="space-y-1">
-                              <p className="font-bold text-white">{lead.name}</p>
-                              <p className="text-zinc-500 text-xs flex items-center gap-1">
-                                <MapPin className="w-3 h-3" />
-                                {lead.cep}
-                              </p>
-                            </div>
-                          </td>
-                          <td className="p-4">
-                            <span className="px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-800 text-xs text-zinc-400">
-                              {lead.segment}
-                            </span>
-                          </td>
-                          <td className="p-4">
-                            <div className="space-y-1">
-                              <a 
-                                href={`tel:${lead.phone}`} 
-                                className="hover:text-[#00c868] transition-colors font-mono text-zinc-300 flex items-center gap-1.5"
-                              >
-                                <Phone className="w-3.5 h-3.5 text-[#00c868]" />
-                                {lead.phone}
-                              </a>
-                              <a
-                                href={`https://wa.me/55${lead.phone}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-zinc-500 hover:text-[#00c868] transition-colors flex items-center gap-1"
-                              >
-                                WhatsApp Comercial
-                              </a>
-                            </div>
-                          </td>
-                          <td className="p-4">
-                            <select
-                              value={lead.status}
-                              onChange={(e) => handleUpdateStatus(lead.id, e.target.value as ProspectLead['status'])}
-                              className={`text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-full border cursor-pointer focus:outline-none ${
-                                lead.status === 'Pendente' ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
-                                lead.status === 'Contatado' ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' :
-                                lead.status === 'Agendado' ? 'bg-[#00c868]/10 border-[#00c868]/30 text-[#00c868]' :
-                                'bg-zinc-800/50 border-zinc-700 text-zinc-400'
-                              }`}
-                            >
-                              <option value="Pendente" className="bg-zinc-950 text-amber-400">Pendente</option>
-                              <option value="Contatado" className="bg-zinc-950 text-blue-400">Contatado</option>
-                              <option value="Agendado" className="bg-zinc-950 text-[#00c868]">Agendado</option>
-                              <option value="Sem Interesse" className="bg-zinc-950 text-zinc-400">Sem Interesse</option>
-                            </select>
-                          </td>
-                          <td className="p-4">
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                placeholder="Adicionar anotação..."
-                                value={editingNotes[lead.id] || ''}
-                                onChange={(e) => setEditingNotes(prev => ({ ...prev, [lead.id]: e.target.value }))}
-                                className="bg-zinc-900/40 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#00c868] w-48"
-                              />
-                              <button
-                                onClick={() => handleSaveNotes(lead.id, lead.status)}
-                                className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
-                                title="Salvar anotação"
-                              >
-                                <CheckCircle className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                          <td className="p-4 text-right">
-                            <button
-                              onClick={() => handleDeleteLead(lead.id)}
-                              className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-red-400 hover:border-red-500/30 transition-all"
-                              title="Excluir Lead"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {savedLeads.map((lead) => (
+                  <div 
+                    key={lead.id} 
+                    className="p-6 rounded-2xl border border-zinc-900 bg-zinc-950/40 hover:border-zinc-800 transition-all flex flex-col justify-between space-y-6"
+                  >
+                    <div className="space-y-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <h4 className="text-base font-bold text-white leading-tight">{lead.name}</h4>
+                          <span className="inline-block mt-1.5 px-2.5 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400 uppercase tracking-wider">
+                            {lead.segment}
+                          </span>
+                        </div>
+
+                        {/* Seletor de Status */}
+                        <select
+                          value={lead.status}
+                          onChange={(e) => handleUpdateStatus(lead.id, e.target.value as ProspectLead['status'])}
+                          className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full border cursor-pointer focus:outline-none ${
+                            lead.status === 'Pendente' ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
+                            lead.status === 'Contatado' ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' :
+                            lead.status === 'Agendado' ? 'bg-[#00c868]/10 border-[#00c868]/30 text-[#00c868]' :
+                            'bg-zinc-800/50 border-zinc-700 text-zinc-400'
+                          }`}
+                        >
+                          <option value="Pendente" className="bg-zinc-950 text-amber-400">Pendente</option>
+                          <option value="Contatado" className="bg-zinc-950 text-blue-400">Contatado</option>
+                          <option value="Agendado" className="bg-zinc-950 text-[#00c868]">Agendado</option>
+                          <option value="Sem Interesse" className="bg-zinc-950 text-zinc-400">Sem Interesse</option>
+                        </select>
+                      </div>
+
+                      {/* Endereço Completo */}
+                      <div className="space-y-1.5 bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
+                        <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-[#00c868]" />
+                          Endereço Completo
+                        </p>
+                        <p className="text-xs text-zinc-300 leading-relaxed font-light">
+                          {lead.address}
+                        </p>
+                        <button
+                          onClick={() => copyToClipboard(lead.address, "Endereço copiado!")}
+                          className="text-[10px] text-zinc-500 hover:text-white transition-colors flex items-center gap-1 mt-1"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>Copiar Endereço</span>
+                        </button>
+                      </div>
+
+                      {/* Telefone Comercial */}
+                      <div className="flex items-center justify-between bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
+                        <div className="space-y-0.5">
+                          <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Telefone Comercial</p>
+                          <p className="text-sm font-mono text-white font-bold">{lead.phone}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => copyToClipboard(lead.phone, "Telefone copiado!")}
+                            className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
+                            title="Copiar Telefone"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                          <a
+                            href={`tel:${lead.phone.replace(/\D/g, '')}`}
+                            className="p-2 rounded-lg bg-[#00c868]/10 border border-[#00c868]/20 text-[#00c868] hover:bg-[#00c868] hover:text-black transition-all"
+                            title="Ligar para Empresa"
+                          >
+                            <Phone className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
+                      </div>
+
+                      {/* Anotações / Histórico */}
+                      <div className="space-y-2">
+                        <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Anotações / Histórico de Contato</p>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            placeholder="Ex: Liguei dia 10, falar com o gerente Marcos na terça..."
+                            value={editingNotes[lead.id] || ''}
+                            onChange={(e) => setEditingNotes(prev => ({ ...prev, [lead.id]: e.target.value }))}
+                            className="flex-1 bg-zinc-900/40 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-[#00c868]"
+                          />
+                          <button
+                            onClick={() => handleSaveNotes(lead.id, lead.status)}
+                            className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
+                            title="Salvar anotação"
+                          >
+                            <Check className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Ações do Card */}
+                    <div className="pt-4 border-t border-zinc-900 flex items-center justify-between gap-3 mt-4">
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lead.name} ${lead.address}`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-zinc-500 hover:text-white transition-colors flex items-center gap-1"
+                      >
+                        <span>Ver no Google Maps</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={`https://wa.me/55${lead.phone.replace(/\D/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-[#00c868] transition-all"
+                          title="WhatsApp"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                        <button
+                          onClick={() => handleDeleteLead(lead.id)}
+                          className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-red-400 hover:border-red-500/30 transition-all"
+                          title="Excluir Lead"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
-              <div className="text-center py-16 border border-dashed border-zinc-900 rounded-3xl space-y-4">
+              <div className="text-center py-20 border border-dashed border-zinc-900 rounded-3xl space-y-4">
                 <FileText className="w-12 h-12 text-zinc-700 mx-auto" />
                 <div className="space-y-1">
                   <p className="text-zinc-400 font-medium">Nenhum lead salvo ainda</p>
