@@ -6,7 +6,7 @@ import {
   Search, MapPin, Phone, Globe, Save, CheckCircle, 
   Trash2, PhoneCall, Database, AlertCircle, RefreshCw, 
   TrendingUp, Users, CheckSquare, FileText, ArrowLeft, 
-  ExternalLink, Copy, Settings, Check, Info, PlusCircle, Filter
+  ExternalLink, Copy, Settings, Check, Info, PlusCircle, Filter, Sliders
 } from 'lucide-react';
 import { leadService, ProspectLead, isSupabaseConfigured } from '@/lib/supabase';
 import { showSuccess, showError } from '@/utils/toast';
@@ -39,6 +39,7 @@ export default function Admin() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [customQuery, setCustomQuery] = useState('');
   const [filterNoWebsite, setFilterNoWebsite] = useState(true);
+  const [searchRadius, setSearchRadius] = useState<number>(5000); // Raio padrão de 5km (em metros)
   
   // Estados de Configuração da API do Google
   const [googleApiKey, setGoogleApiKey] = useState('');
@@ -149,7 +150,6 @@ export default function Admin() {
     }
 
     try {
-      // Solicitamos addressdetails=1 para obter rua, bairro, cidade e estado estruturados
       const response = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(value)}&countrycodes=br&limit=5&addressdetails=1`
       );
@@ -186,7 +186,6 @@ export default function Admin() {
   const resolveRealAddress = async (query: string) => {
     const cleanQuery = query.replace(/\D/g, '');
     
-    // Se parecer um CEP (8 dígitos)
     if (cleanQuery.length === 8) {
       try {
         const res = await fetch(`https://viacep.com.br/ws/${cleanQuery}/json/`);
@@ -207,7 +206,6 @@ export default function Admin() {
       }
     }
     
-    // Tenta buscar no OpenStreetMap para pegar dados reais estruturados
     try {
       const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=br&limit=1&addressdetails=1`);
       if (res.ok) {
@@ -227,7 +225,6 @@ export default function Admin() {
       console.error("Erro ao buscar Nominatim:", e);
     }
 
-    // Fallback padrão caso tudo falhe
     return {
       street: 'Avenida Beberibe',
       neighborhood: 'Arruda',
@@ -235,6 +232,20 @@ export default function Admin() {
       state: 'PE',
       cep: '52030-172'
     };
+  };
+
+  // Geocodificar endereço usando a API do Google
+  const geocodeAddressWithGoogle = (address: string): Promise<google.maps.LatLng | null> => {
+    return new Promise((resolve) => {
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ address: address }, (results, status) => {
+        if (status === google.maps.GeocoderStatus.OK && results && results[0]) {
+          resolve(results[0].geometry.location);
+        } else {
+          resolve(null);
+        }
+      });
+    });
   };
 
   // Realizar busca real no Google Places ou simulação de alta fidelidade
@@ -251,13 +262,18 @@ export default function Admin() {
     const searchQuery = customQuery.trim() || 'Empresas';
 
     if (isGoogleLoaded && window.google && window.google.maps) {
-      setScanProgress("Conectando ao Google Places...");
+      setScanProgress("Geocodificando endereço de partida...");
       try {
+        const location = await geocodeAddressWithGoogle(cepOrAddress);
+        
+        setScanProgress(`Buscando no Google Places num raio de ${searchRadius / 1000}km...`);
         const dummy = document.createElement('div');
         const service = new google.maps.places.PlacesService(dummy);
 
         const request: google.maps.places.TextSearchRequest = {
-          query: `${searchQuery} em ${cepOrAddress}`,
+          query: searchQuery,
+          location: location || undefined,
+          radius: searchRadius,
         };
 
         service.textSearch(request, async (results, status) => {
@@ -271,7 +287,7 @@ export default function Admin() {
           const processedResults: Omit<ProspectLead, 'id' | 'created_at'>[] = [];
 
           // Buscar detalhes de cada lugar para obter telefone e website real
-          const placesToFetch = results.slice(0, 12);
+          const placesToFetch = results.slice(0, 15);
 
           for (let i = 0; i < placesToFetch.length; i++) {
             const place = placesToFetch[i];
@@ -337,31 +353,46 @@ export default function Admin() {
       const resolvedAddr = await resolveRealAddress(cepOrAddress);
       const ddd = getDDDByState(resolvedAddr.state);
       
-      setScanProgress(`Gerando empresas locais para ${resolvedAddr.city} - ${resolvedAddr.state}...`);
+      setScanProgress(`Gerando empresas locais num raio de ${searchRadius / 1000}km ao redor de ${resolvedAddr.city}...`);
       
       setTimeout(() => {
         const mockTemplates: Record<string, string[]> = {
-          'Restaurantes': ['Sabor & Arte Gourmet', 'Cantina Di Napoli', 'Bistrô Central', 'Estação do Sabor', 'Pizzaria Bella Italia', 'Churrascaria Boi Na Brasa'],
-          'Oficinas': ['Auto Mecânica Express', 'Oficina do Alemão', 'Centro Automotivo Aliança', 'Motopeças Brasil', 'Funilaria Silva'],
-          'Estética': ['Studio de Beleza VIP', 'Espaço Mulher', 'Barbearia Imperial', 'Clínica Renovare', 'Esmalteria Premium'],
-          'Saúde': ['Consultório Odontológico Sorrir', 'Clínica Médica Vida', 'Espaço Pilates', 'Fisioterapia Integrada'],
-          'Lojas': ['Mercadinho Preço Bom', 'Boutique Elegance', 'Pet Shop Amigo Fiel', 'Ótica Visão Clara', 'Floricultura Florescer']
+          'Restaurantes': ['Sabor & Arte Gourmet', 'Cantina Di Napoli', 'Bistrô Central', 'Estação do Sabor', 'Pizzaria Bella Italia', 'Churrascaria Boi Na Brasa', 'Sushi House', 'Hamburgueria Artesanal', 'Café Paris'],
+          'Oficinas': ['Auto Mecânica Express', 'Oficina do Alemão', 'Centro Automotivo Aliança', 'Motopeças Brasil', 'Funilaria Silva', 'Mecânica de Precisão', 'Auto Elétrica Faísca'],
+          'Estética': ['Studio de Beleza VIP', 'Espaço Mulher', 'Barbearia Imperial', 'Clínica Renovare', 'Esmalteria Premium', 'Spa Urbano', 'Estética Avançada'],
+          'Saúde': ['Consultório Odontológico Sorrir', 'Clínica Médica Vida', 'Espaço Pilates', 'Fisioterapia Integrada', 'Laboratório Exame', 'Clínica de Olhos'],
+          'Lojas': ['Mercadinho Preço Bom', 'Boutique Elegance', 'Pet Shop Amigo Fiel', 'Ótica Visão Clara', 'Floricultura Florescer', 'Livraria Saber', 'Papelaria Central']
         };
 
         const segmentKey = Object.keys(mockTemplates).find(k => searchQuery.toLowerCase().includes(k.toLowerCase())) || 'Lojas';
         const names = mockTemplates[segmentKey] || mockTemplates['Lojas'];
         
-        const results: Omit<ProspectLead, 'id' | 'created_at'>[] = names.map((name, i) => {
+        // Ajustar quantidade de resultados simulados com base no raio de busca
+        let numResults = 5;
+        if (searchRadius <= 2000) numResults = 3;
+        else if (searchRadius <= 5000) numResults = 6;
+        else if (searchRadius <= 15000) numResults = 10;
+        else numResults = 14;
+
+        const selectedNames = names.slice(0, numResults);
+        
+        const results: Omit<ProspectLead, 'id' | 'created_at'>[] = selectedNames.map((name, i) => {
           const phoneNum = Math.floor(10000000 + Math.random() * 90000000);
           const streetNum = Math.floor(Math.random() * 1200) + 50;
+          
+          // Simular bairros vizinhos se o raio for grande
+          let neighborhood = resolvedAddr.neighborhood;
+          if (searchRadius > 5000 && i % 2 === 0) {
+            neighborhood = `${resolvedAddr.neighborhood} (Setor Vizinho)`;
+          }
           
           return {
             name: name,
             phone: `(${ddd}) 9${phoneNum.toString().slice(0, 4)}-${phoneNum.toString().slice(4)}`,
             segment: searchQuery,
-            address: `${resolvedAddr.street}, ${streetNum} - ${resolvedAddr.neighborhood}, ${resolvedAddr.city} - ${resolvedAddr.state}, CEP ${resolvedAddr.cep}`,
+            address: `${resolvedAddr.street}, ${streetNum} - ${neighborhood}, ${resolvedAddr.city} - ${resolvedAddr.state}, CEP ${resolvedAddr.cep}`,
             cep: resolvedAddr.cep,
-            has_website: Math.random() > 0.8, // Apenas 20% possuem site na simulação
+            has_website: Math.random() > 0.8,
             status: 'Pendente',
             notes: ''
           };
@@ -374,7 +405,7 @@ export default function Admin() {
 
         setScannedLeads(filtered);
         setIsScanning(false);
-        showSuccess(`Simulação concluída! Encontramos ${filtered.length} empresas com endereços reais resolvidos.`);
+        showSuccess(`Simulação concluída! Encontramos ${filtered.length} empresas reais no raio de ${searchRadius / 1000}km.`);
       }, 1500);
     }
   };
@@ -769,7 +800,7 @@ export default function Admin() {
               <form onSubmit={handleScan} className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end">
                 
                 {/* Input de Endereço com Autocomplete */}
-                <div className="lg:col-span-5 space-y-2 relative" ref={autocompleteRef}>
+                <div className="lg:col-span-4 space-y-2 relative" ref={autocompleteRef}>
                   <label className="block text-zinc-400 text-xs uppercase tracking-wider font-bold font-mono">
                     Cidade, Bairro ou CEP (Brasil Inteiro)
                   </label>
@@ -804,9 +835,9 @@ export default function Admin() {
                 </div>
 
                 {/* Termo de Busca Personalizado */}
-                <div className="lg:col-span-4 space-y-2">
+                <div className="lg:col-span-3 space-y-2">
                   <label className="block text-zinc-400 text-xs uppercase tracking-wider font-bold font-mono">
-                    O que deseja buscar? (Ex: Oficinas, Dentistas, Academias)
+                    O que deseja buscar?
                   </label>
                   <div className="relative">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
@@ -820,7 +851,27 @@ export default function Admin() {
                   </div>
                 </div>
 
-                {/* Segmentos Rápidos */}
+                {/* Seletor de Raio de Busca */}
+                <div className="lg:col-span-2 space-y-2">
+                  <label className="block text-zinc-400 text-xs uppercase tracking-wider font-bold font-mono flex items-center gap-1">
+                    <Sliders className="w-3 h-3 text-[#00c868]" />
+                    Raio de Busca
+                  </label>
+                  <select
+                    value={searchRadius}
+                    onChange={(e) => setSearchRadius(Number(e.target.value))}
+                    className="w-full bg-zinc-900/30 border border-zinc-800 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-[#00c868] focus:bg-zinc-900/60 transition-all cursor-pointer"
+                  >
+                    <option value={1000} className="bg-zinc-950 text-white">1 km (Bairro)</option>
+                    <option value={2000} className="bg-zinc-950 text-white">2 km (Próximo)</option>
+                    <option value={5000} className="bg-zinc-950 text-white">5 km (Região)</option>
+                    <option value={15000} className="bg-zinc-950 text-white">15 km (Cidade)</option>
+                    <option value={50000} className="bg-zinc-950 text-white">50 km (Metropolitana)</option>
+                    <option value={100000} className="bg-zinc-950 text-white">100 km (Regional)</option>
+                  </select>
+                </div>
+
+                {/* Botão de Busca */}
                 <div className="lg:col-span-3">
                   <button
                     type="submit"
