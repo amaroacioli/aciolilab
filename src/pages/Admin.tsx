@@ -6,17 +6,27 @@ import {
   Search, MapPin, Phone, Globe, Save, CheckCircle, 
   Trash2, PhoneCall, Database, AlertCircle, RefreshCw, 
   TrendingUp, Users, CheckSquare, FileText, ArrowLeft, 
-  ExternalLink, Copy, Settings, HelpCircle, Check, Info
+  ExternalLink, Copy, Settings, Check, Info, PlusCircle, Filter
 } from 'lucide-react';
 import { leadService, ProspectLead, isSupabaseConfigured } from '@/lib/supabase';
 import { showSuccess, showError } from '@/utils/toast';
 import ScrollReveal from '@/components/ScrollReveal';
 
-// Interface para sugestões de endereço do Nominatim
+// Interface detalhada para sugestões de endereço do Nominatim
 interface AddressSuggestion {
   display_name: string;
   lat: string;
   lon: string;
+  address?: {
+    road?: string;
+    suburb?: string;
+    city?: string;
+    town?: string;
+    village?: string;
+    state?: string;
+    postcode?: string;
+    country_code?: string;
+  };
 }
 
 export default function Admin() {
@@ -28,7 +38,7 @@ export default function Admin() {
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [customQuery, setCustomQuery] = useState('');
-  const [selectedSegment, setSelectedSegment] = useState('Todos');
+  const [filterNoWebsite, setFilterNoWebsite] = useState(true);
   
   // Estados de Configuração da API do Google
   const [googleApiKey, setGoogleApiKey] = useState('');
@@ -41,6 +51,18 @@ export default function Admin() {
   const [scannedLeads, setScannedLeads] = useState<Omit<ProspectLead, 'id' | 'created_at'>[]>([]);
   const [savedLeads, setSavedLeads] = useState<ProspectLead[]>([]);
   const [editingNotes, setEditingNotes] = useState<{ [key: string]: string }>({});
+
+  // Estado para Cadastro Manual de Lead
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [manualLead, setManualLead] = useState({
+    name: '',
+    phone: '',
+    segment: '',
+    address: '',
+    cep: '',
+    has_website: false,
+    notes: ''
+  });
 
   const autocompleteRef = useRef<HTMLDivElement>(null);
 
@@ -70,7 +92,6 @@ export default function Admin() {
       return;
     }
 
-    // Remover script anterior se houver
     const existingScript = document.getElementById('google-maps-sdk');
     if (existingScript) {
       existingScript.remove();
@@ -117,7 +138,7 @@ export default function Admin() {
     setEditingNotes(notesMap);
   };
 
-  // Buscar sugestões de endereço (Nominatim API - Gratuito e sem CORS)
+  // Buscar sugestões de endereço com detalhes estruturados
   const handleAddressChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setCepOrAddress(value);
@@ -128,8 +149,9 @@ export default function Admin() {
     }
 
     try {
+      // Solicitamos addressdetails=1 para obter rua, bairro, cidade e estado estruturados
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(value)}&countrycodes=br&limit=5`
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(value)}&countrycodes=br&limit=5&addressdetails=1`
       );
       if (response.ok) {
         const data = await response.json();
@@ -147,7 +169,20 @@ export default function Admin() {
     setShowSuggestions(false);
   };
 
-  // Função auxiliar para resolver endereço real via APIs públicas brasileiras
+  // Mapeamento inteligente de DDD por Estado do Brasil
+  const getDDDByState = (state: string): string => {
+    const dddMap: Record<string, string> = {
+      'AC': '68', 'AL': '82', 'AP': '96', 'AM': '92', 'BA': '71',
+      'CE': '85', 'DF': '61', 'ES': '27', 'GO': '62', 'MA': '98',
+      'MT': '65', 'MS': '67', 'MG': '31', 'PA': '91', 'PB': '83',
+      'PR': '41', 'PE': '81', 'PI': '86', 'RJ': '21', 'RN': '84',
+      'RS': '51', 'RO': '69', 'RR': '95', 'SC': '48', 'SP': '11',
+      'SE': '79', 'TO': '63'
+    };
+    return dddMap[state.toUpperCase()] || '11';
+  };
+
+  // Resolver endereço real via ViaCEP ou OpenStreetMap
   const resolveRealAddress = async (query: string) => {
     const cleanQuery = query.replace(/\D/g, '');
     
@@ -159,7 +194,7 @@ export default function Admin() {
           const data = await res.json();
           if (!data.erro) {
             return {
-              street: data.logradouro || 'Avenida Principal',
+              street: data.logradouro || 'Rua Principal',
               neighborhood: data.bairro || 'Centro',
               city: data.localidade || 'Recife',
               state: data.uf || 'PE',
@@ -172,7 +207,7 @@ export default function Admin() {
       }
     }
     
-    // Tenta buscar no OpenStreetMap para pegar dados reais de rua/bairro
+    // Tenta buscar no OpenStreetMap para pegar dados reais estruturados
     try {
       const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=br&limit=1&addressdetails=1`);
       if (res.ok) {
@@ -182,8 +217,8 @@ export default function Admin() {
           return {
             street: addr.road || addr.pedestrian || 'Avenida Principal',
             neighborhood: addr.suburb || addr.neighbourhood || 'Bairro Central',
-            city: addr.city || addr.town || addr.municipality || 'Recife',
-            state: (addr.state_code || addr.state || 'PE').toUpperCase(),
+            city: addr.city || addr.town || addr.village || 'Recife',
+            state: (addr.state || 'PE').substring(0, 2).toUpperCase(),
             cep: addr.postcode || '50000-000'
           };
         }
@@ -213,7 +248,7 @@ export default function Admin() {
     setIsScanning(true);
     setScannedLeads([]);
 
-    const searchQuery = customQuery.trim() || (selectedSegment === 'Todos' ? 'Empresas' : selectedSegment);
+    const searchQuery = customQuery.trim() || 'Empresas';
 
     if (isGoogleLoaded && window.google && window.google.maps) {
       setScanProgress("Conectando ao Google Places...");
@@ -280,9 +315,14 @@ export default function Admin() {
             });
           }
 
-          setScannedLeads(processedResults);
+          // Aplicar filtro de website se ativo
+          const filtered = filterNoWebsite 
+            ? processedResults.filter(lead => !lead.has_website) 
+            : processedResults;
+
+          setScannedLeads(filtered);
           setIsScanning(false);
-          showSuccess(`Varredura concluída! ${processedResults.length} empresas reais carregadas.`);
+          showSuccess(`Varredura concluída! ${filtered.length} empresas reais carregadas.`);
         });
 
       } catch (err) {
@@ -295,8 +335,9 @@ export default function Admin() {
       setScanProgress("Resolvendo endereço real para a região informada...");
       
       const resolvedAddr = await resolveRealAddress(cepOrAddress);
+      const ddd = getDDDByState(resolvedAddr.state);
       
-      setScanProgress("Gerando empresas locais com endereços 100% reais...");
+      setScanProgress(`Gerando empresas locais para ${resolvedAddr.city} - ${resolvedAddr.state}...`);
       
       setTimeout(() => {
         const mockTemplates: Record<string, string[]> = {
@@ -311,7 +352,6 @@ export default function Admin() {
         const names = mockTemplates[segmentKey] || mockTemplates['Lojas'];
         
         const results: Omit<ProspectLead, 'id' | 'created_at'>[] = names.map((name, i) => {
-          const ddd = resolvedAddr.state === 'PE' ? '81' : '11';
           const phoneNum = Math.floor(10000000 + Math.random() * 90000000);
           const streetNum = Math.floor(Math.random() * 1200) + 50;
           
@@ -321,15 +361,20 @@ export default function Admin() {
             segment: searchQuery,
             address: `${resolvedAddr.street}, ${streetNum} - ${resolvedAddr.neighborhood}, ${resolvedAddr.city} - ${resolvedAddr.state}, CEP ${resolvedAddr.cep}`,
             cep: resolvedAddr.cep,
-            has_website: Math.random() > 0.7,
+            has_website: Math.random() > 0.8, // Apenas 20% possuem site na simulação
             status: 'Pendente',
             notes: ''
           };
         });
 
-        setScannedLeads(results);
+        // Aplicar filtro de website se ativo
+        const filtered = filterNoWebsite 
+          ? results.filter(lead => !lead.has_website) 
+          : results;
+
+        setScannedLeads(filtered);
         setIsScanning(false);
-        showSuccess(`Simulação concluída! Encontramos ${results.length} empresas com endereços reais resolvidos.`);
+        showSuccess(`Simulação concluída! Encontramos ${filtered.length} empresas com endereços reais resolvidos.`);
       }, 1500);
     }
   };
@@ -358,6 +403,43 @@ export default function Admin() {
       loadSavedLeads();
     } catch (err) {
       showError("Erro ao salvar todos os leads.");
+    }
+  };
+
+  // Salvar lead manual
+  const handleSaveManualLead = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualLead.name || !manualLead.phone || !manualLead.address) {
+      showError("Por favor, preencha os campos obrigatórios.");
+      return;
+    }
+
+    try {
+      await leadService.saveLead({
+        name: manualLead.name,
+        phone: manualLead.phone,
+        segment: manualLead.segment || 'Geral',
+        address: manualLead.address,
+        cep: manualLead.cep || 'Não informado',
+        has_website: manualLead.has_website,
+        status: 'Pendente',
+        notes: manualLead.notes
+      });
+
+      showSuccess(`Lead "${manualLead.name}" cadastrado com sucesso!`);
+      setShowManualForm(false);
+      setManualLead({
+        name: '',
+        phone: '',
+        segment: '',
+        address: '',
+        cep: '',
+        has_website: false,
+        notes: ''
+      });
+      loadSavedLeads();
+    } catch (err) {
+      showError("Erro ao cadastrar lead manual.");
     }
   };
 
@@ -431,6 +513,14 @@ export default function Admin() {
           {/* Botões de Configuração e Status */}
           <div className="flex flex-wrap items-center gap-3">
             <button
+              onClick={() => setShowManualForm(!showManualForm)}
+              className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#00c868]/10 border border-[#00c868]/30 text-[#00c868] text-xs font-bold uppercase tracking-wider hover:bg-[#00c868] hover:text-black transition-all cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>Cadastrar Lead Manual</span>
+            </button>
+
+            <button
               onClick={() => setShowSettings(!showSettings)}
               className={`flex items-center gap-2 px-4 py-2 rounded-full border text-xs font-mono transition-all ${
                 isGoogleLoaded 
@@ -452,6 +542,124 @@ export default function Admin() {
             </div>
           </div>
         </div>
+
+        {/* Formulário de Cadastro Manual de Lead */}
+        {showManualForm && (
+          <ScrollReveal className="bg-zinc-950/90 border border-zinc-850 p-8 rounded-3xl space-y-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-zinc-900 pb-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <PlusCircle className="w-5 h-5 text-[#00c868]" />
+                Cadastrar Novo Lead Manualmente
+              </h3>
+              <button 
+                onClick={() => setShowManualForm(false)}
+                className="text-zinc-500 hover:text-white text-xs uppercase tracking-wider"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveManualLead} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="block text-zinc-400 text-[10px] uppercase tracking-wider font-bold font-mono">Nome da Empresa *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Barbearia do Zé"
+                  value={manualLead.name}
+                  onChange={(e) => setManualLead(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full bg-zinc-900/40 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#00c868]"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-zinc-400 text-[10px] uppercase tracking-wider font-bold font-mono">Telefone Comercial *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: (81) 99999-9999"
+                  value={manualLead.phone}
+                  onChange={(e) => setManualLead(prev => ({ ...prev, phone: e.target.value }))}
+                  className="w-full bg-zinc-900/40 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#00c868]"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-zinc-400 text-[10px] uppercase tracking-wider font-bold font-mono">Segmento / Nicho</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Barbearia, Restaurante, Clínica"
+                  value={manualLead.segment}
+                  onChange={(e) => setManualLead(prev => ({ ...prev, segment: e.target.value }))}
+                  className="w-full bg-zinc-900/40 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#00c868]"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-zinc-400 text-[10px] uppercase tracking-wider font-bold font-mono">CEP</label>
+                <input
+                  type="text"
+                  placeholder="Ex: 50000-000"
+                  value={manualLead.cep}
+                  onChange={(e) => setManualLead(prev => ({ ...prev, cep: e.target.value }))}
+                  className="w-full bg-zinc-900/40 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#00c868]"
+                />
+              </div>
+
+              <div className="md:col-span-2 space-y-2">
+                <label className="block text-zinc-400 text-[10px] uppercase tracking-wider font-bold font-mono">Endereço Completo *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Rua das Flores, 123 - Bairro, Cidade - UF"
+                  value={manualLead.address}
+                  onChange={(e) => setManualLead(prev => ({ ...prev, address: e.target.value }))}
+                  className="w-full bg-zinc-900/40 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#00c868]"
+                />
+              </div>
+
+              <div className="md:col-span-2 space-y-2">
+                <label className="block text-zinc-400 text-[10px] uppercase tracking-wider font-bold font-mono">Anotações Iniciais</label>
+                <textarea
+                  rows={2}
+                  placeholder="Ex: Encontrei no Instagram, parece não ter site ativo..."
+                  value={manualLead.notes}
+                  onChange={(e) => setManualLead(prev => ({ ...prev, notes: e.target.value }))}
+                  className="w-full bg-zinc-900/40 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#00c868] resize-none"
+                />
+              </div>
+
+              <div className="md:col-span-2 flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="manual_has_website"
+                  checked={manualLead.has_website}
+                  onChange={(e) => setManualLead(prev => ({ ...prev, has_website: e.target.checked }))}
+                  className="w-4 h-4 rounded border-zinc-800 bg-zinc-900 text-[#00c868] focus:ring-[#00c868]"
+                />
+                <label htmlFor="manual_has_website" className="text-xs text-zinc-300 cursor-pointer select-none">
+                  Esta empresa já possui um website oficial?
+                </label>
+              </div>
+
+              <div className="md:col-span-2 flex justify-end gap-3 pt-4 border-t border-zinc-900">
+                <button
+                  type="button"
+                  onClick={() => setShowManualForm(false)}
+                  className="px-5 py-2.5 rounded-xl border border-zinc-800 text-zinc-400 hover:text-white text-xs uppercase tracking-wider transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-[#00c868] text-black font-bold text-xs uppercase tracking-wider hover:bg-[#00b05b] transition-all cursor-pointer"
+                >
+                  Salvar Lead na Lista
+                </button>
+              </div>
+            </form>
+          </ScrollReveal>
+        )}
 
         {/* Painel de Configurações da API do Google */}
         {showSettings && (
@@ -633,6 +841,27 @@ export default function Admin() {
                   </button>
                 </div>
               </form>
+
+              {/* Filtros de Busca */}
+              <div className="flex items-center gap-6 pt-2 border-t border-zinc-900/60">
+                <span className="text-xs text-zinc-500 font-mono uppercase tracking-wider flex items-center gap-1.5">
+                  <Filter className="w-3.5 h-3.5 text-[#00c868]" />
+                  Filtros de Varredura:
+                </span>
+
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="filter_no_website"
+                    checked={filterNoWebsite}
+                    onChange={(e) => setFilterNoWebsite(e.target.checked)}
+                    className="w-4 h-4 rounded border-zinc-800 bg-zinc-900 text-[#00c868] focus:ring-[#00c868]"
+                  />
+                  <label htmlFor="filter_no_website" className="text-xs text-zinc-300 cursor-pointer select-none">
+                    Mostrar apenas empresas sem website (Foco em Vendas)
+                  </label>
+                </div>
+              </div>
 
               {isScanning && (
                 <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono bg-zinc-900/20 p-3 rounded-xl border border-zinc-900">
