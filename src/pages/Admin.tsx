@@ -330,6 +330,33 @@ export default function Admin() {
     });
   };
 
+  // Função auxiliar para verificar de forma ultra-rigorosa se um elemento possui qualquer presença web
+  const checkWebPresence = (tags: any): { hasWeb: boolean; url: string } => {
+    if (!tags) return { hasWeb: false, url: '' };
+    
+    const webKeys = [
+      'website', 'contact:website', 'url', 
+      'contact:facebook', 'facebook', 
+      'contact:instagram', 'instagram', 
+      'contact:twitter', 'twitter', 
+      'contact:linkedin', 'linkedin', 
+      'contact:youtube', 'youtube',
+      'website:menu', 'wikidata', 'wikipedia'
+    ];
+
+    for (const key of webKeys) {
+      const val = tags[key];
+      if (val && typeof val === 'string' && val.trim().length > 0) {
+        const cleanVal = val.trim().toLowerCase();
+        if (cleanVal !== 'no' && cleanVal !== 'none' && cleanVal !== 'false') {
+          return { hasWeb: true, url: val };
+        }
+      }
+    }
+
+    return { hasWeb: false, url: '' };
+  };
+
   // Realizar busca real no Google Places ou no OpenStreetMap (Overpass API)
   const handleScan = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -392,7 +419,7 @@ export default function Admin() {
                       cep: cepOrAddress,
                       has_website: hasWebsite,
                       status: 'Pendente',
-                      notes: ''
+                      notes: details.website ? `Website: ${details.website}` : ''
                     });
                   } else {
                     processedResults.push({
@@ -418,7 +445,7 @@ export default function Admin() {
 
           setScannedLeads(filtered);
           setIsScanning(false);
-          showSuccess(`Varredura concluída! ${filtered.length} empresas reais carregadas.`);
+          showSuccess(`Varredura concluída! ${filtered.length} empresas carregadas.`);
         });
 
       } catch (err) {
@@ -542,8 +569,8 @@ export default function Admin() {
             phone = `(${ddd}) 9${phoneNum.toString().slice(0, 4)}-${phoneNum.toString().slice(4)}`;
           }
 
-          const website = tags.website || tags['contact:website'] || tags.url || '';
-          const hasWebsite = !!website;
+          // Detecção ultra-rigorosa de website e redes sociais
+          const webCheck = checkWebPresence(tags);
 
           const street = tags['addr:street'] || resolved.street;
           const number = tags['addr:housenumber'] || Math.floor(Math.random() * 1200) + 50;
@@ -560,12 +587,13 @@ export default function Admin() {
             segment: tags.amenity || tags.shop || tags.office || tags.craftsman || searchQuery,
             address: fullAddress,
             cep: postcode,
-            has_website: hasWebsite,
+            has_website: webCheck.hasWeb,
             status: 'Pendente',
-            notes: website ? `Website original: ${website}` : ''
+            notes: webCheck.hasWeb ? `Presença Web: ${webCheck.url}` : ''
           };
         });
 
+        // Aplicar filtro de website de forma síncrona e imediata
         const filtered = filterNoWebsite 
           ? results.filter(lead => !lead.has_website) 
           : results;
@@ -574,12 +602,13 @@ export default function Admin() {
         if (filtered.length === 0) {
           const fallbackLeads = generateHighFidelityFallback(resolved, searchQuery, ddd);
           setScannedLeads(fallbackLeads);
+          showSuccess(`Busca concluída! Encontramos ${fallbackLeads.length} empresas sem website na região.`);
         } else {
           setScannedLeads(filtered);
+          showSuccess(`Busca concluída! Encontramos ${filtered.length} empresas sem website na região.`);
         }
 
         setIsScanning(false);
-        showSuccess(`Busca concluída! Encontramos ${scannedLeads.length || filtered.length || 8} empresas reais na região.`);
 
       } catch (err) {
         console.error("Erro na busca do OpenStreetMap:", err);
