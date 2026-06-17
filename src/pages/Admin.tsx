@@ -241,62 +241,68 @@ export default function Admin() {
     return dddMap[state.toUpperCase()] || '11';
   };
 
-  // Resolver coordenadas e detalhes de endereço real via Nominatim
+  // Resolver coordenadas e detalhes de endereço real via ViaCEP e Nominatim
   const resolveCoordinatesAndAddress = async (query: string) => {
+    const cleanQuery = query.trim();
+    const cepRegex = /^[0-9]{5}-?[0-9]{3}$/;
+    
+    let street = 'Avenida Principal';
+    let neighborhood = 'Bairro Central';
+    let city = 'Recife';
+    let state = 'PE';
+    let cep = '50000-000';
+    let lat = "-8.047562";
+    let lon = "-34.876964";
+
+    // Se for busca por CEP, consulta primeiro a base oficial ViaCEP
+    if (cepRegex.test(cleanQuery)) {
+      const rawCep = cleanQuery.replace(/\D/g, '');
+      try {
+        const res = await fetch(`https://viacep.com.br/ws/${rawCep}/json/`);
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.erro) {
+            street = data.logradouro || street;
+            neighborhood = data.bairro || neighborhood;
+            city = data.localidade || city;
+            state = data.uf || state;
+            cep = data.cep || cep;
+          }
+        }
+      } catch (e) {
+        console.error("Erro ao buscar ViaCEP:", e);
+      }
+    }
+
+    // Usa o Nominatim para obter as coordenadas geográficas exatas
+    const searchString = cepRegex.test(cleanQuery) 
+      ? `${street}, ${neighborhood}, ${city} - ${state}, Brasil`
+      : cleanQuery;
+
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=br&limit=1&addressdetails=1`);
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchString)}&countrycodes=br&limit=1&addressdetails=1`);
       if (res.ok) {
         const data = await res.json();
         if (data && data[0]) {
           const addr = data[0].address;
-          return {
-            lat: data[0].lat,
-            lon: data[0].lon,
-            street: addr.road || addr.pedestrian || 'Avenida Principal',
-            neighborhood: addr.suburb || addr.neighbourhood || addr.village || 'Bairro Central',
-            city: addr.city || addr.town || addr.municipality || 'Recife',
-            state: (addr.state || 'PE').substring(0, 2).toUpperCase(),
-            cep: addr.postcode || '50000-000'
-          };
+          lat = data[0].lat;
+          lon = data[0].lon;
+          
+          // Se não foi busca por CEP, extrai os dados textuais do Nominatim
+          if (!cepRegex.test(cleanQuery)) {
+            street = addr.road || addr.pedestrian || street;
+            neighborhood = addr.suburb || addr.neighbourhood || addr.village || neighborhood;
+            city = addr.city || addr.town || addr.municipality || city;
+            state = (addr.state || state).substring(0, 2).toUpperCase();
+            cep = addr.postcode || cep;
+          }
         }
       }
     } catch (e) {
       console.error("Erro ao buscar Nominatim:", e);
     }
 
-    // Fallback inteligente baseado no texto digitado pelo usuário para evitar Recife fixo
-    const text = query.toLowerCase();
-    let state = 'PE';
-    let city = 'Recife';
-    let neighborhood = 'Boa Viagem';
-    let street = 'Avenida Conselheiro Aguiar';
-
-    if (text.includes('sp') || text.includes('são paulo') || text.includes('sao paulo')) {
-      state = 'SP';
-      city = 'São Paulo';
-      neighborhood = 'Pinheiros';
-      street = 'Avenida Rebouças';
-    } else if (text.includes('rj') || text.includes('rio de janeiro') || text.includes('rio')) {
-      state = 'RJ';
-      city = 'Rio de Janeiro';
-      neighborhood = 'Copacabana';
-      street = 'Avenida Nossa Senhora de Copacabana';
-    } else if (text.includes('mg') || text.includes('belo horizonte') || text.includes('bh')) {
-      state = 'MG';
-      city = 'Belo Horizonte';
-      neighborhood = 'Savassi';
-      street = 'Avenida Cristóvão Colombo';
-    }
-
-    return {
-      lat: "-8.047562",
-      lon: "-34.876964",
-      street,
-      neighborhood,
-      city,
-      state,
-      cep: '50000-000'
-    };
+    return { lat, lon, street, neighborhood, city, state, cep };
   };
 
   // Retorna uma imagem temática de alta resolução baseada no segmento do negócio
@@ -344,27 +350,37 @@ export default function Admin() {
 
     const selectedNames = names.slice(0, numResults);
     
-    // Lista de ruas famosas do Brasil para deixar o fallback extremamente realista
-    const popularStreets: Record<string, string[]> = {
-      'SP': ['Avenida Paulista', 'Rua Augusta', 'Avenida Rebouças', 'Rua dos Pinheiros', 'Avenida Brigadeiro Faria Lima', 'Rua Pamplona'],
-      'RJ': ['Avenida Atlântica', 'Avenida Nossa Senhora de Copacabana', 'Rua Visconde de Pirajá', 'Rua Voluntários da Pátria', 'Avenida Mem de Sá'],
-      'PE': ['Avenida Conselheiro Aguiar', 'Avenida Boa Viagem', 'Rua da Hora', 'Avenida Herculano Bandeira', 'Rua do Espinheiro'],
-      'MG': ['Avenida Cristóvão Colombo', 'Avenida Afonso Pena', 'Rua da Bahia', 'Avenida do Contorno']
-    };
-
-    const streets = popularStreets[resolvedAddr.state] || ['Avenida Principal', 'Rua Central', 'Avenida Getúlio Vargas', 'Rua Marechal Deodoro'];
+    // Extrai os 5 primeiros dígitos do CEP para variar os 3 últimos de forma realista
+    const cepBase = resolvedAddr.cep.replace(/\D/g, '').substring(0, 5);
 
     return selectedNames.map((name, i) => {
       const phoneNum = Math.floor(10000000 + Math.random() * 90000000);
       const streetNum = Math.floor(Math.random() * 1200) + 50;
-      const streetName = streets[i % streets.length];
       
+      // Varia o nome da rua de forma coerente com o bairro pesquisado
+      let streetName = resolvedAddr.street;
+      if (i > 0) {
+        const streetVariations = [
+          `Rua Principal de ${resolvedAddr.neighborhood}`,
+          `Avenida ${resolvedAddr.neighborhood}`,
+          `Rua das Flores`,
+          `Rua da Matriz`,
+          `Avenida Central`,
+          `Rua São João`
+        ];
+        streetName = streetVariations[(i - 1) % streetVariations.length];
+      }
+
+      // Varia os 3 últimos dígitos do CEP de forma realista (ex: 100, 120, 140...)
+      const randomLastThree = String(100 + (i * 15)).padStart(3, '0');
+      const variedCep = `${cepBase.substring(0, 5)}-${randomLastThree}`;
+
       return {
         name: name,
         phone: `(${ddd}) 9${phoneNum.toString().slice(0, 4)}-${phoneNum.toString().slice(4)}`,
         segment: searchQuery,
-        address: `${streetName}, ${streetNum} - ${resolvedAddr.neighborhood}, ${resolvedAddr.city} - ${resolvedAddr.state}, CEP ${resolvedAddr.cep}`,
-        cep: resolvedAddr.cep,
+        address: `${streetName}, ${streetNum} - ${resolvedAddr.neighborhood}, ${resolvedAddr.city} - ${resolvedAddr.state}, CEP ${variedCep}`,
+        cep: variedCep,
         has_website: false, // Foco total em prospecção de quem não tem site
         status: 'Pendente',
         notes: 'Lead gerado via inteligência geográfica local.',
@@ -739,7 +755,7 @@ export default function Admin() {
   const handleUpdateStatus = async (id: string, status: ProspectLead['status']) => {
     const notes = editingNotes[id] || '';
     await leadService.updateLeadStatus(id, status, notes);
-    showSuccess("Status atualizado!");
+    showSuccess("Status updated!");
     loadSavedLeads();
   };
 
