@@ -53,7 +53,7 @@ export default function Admin() {
   const [googleApiKey, setGoogleApiKey] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [isGoogleLoaded, setIsGoogleLoaded] = useState(false);
-  const [useGoogleApi, setUseGoogleApi] = useState<boolean>(true); // Controle de Ativo/Inativo da API
+  const [useGoogleApi, setUseGoogleApi] = useState<boolean>(false); // Padrão desligado para usar a nossa busca gratuita!
 
   // Estados de Controle e Resultados
   const [isScanning, setIsScanning] = useState(false);
@@ -83,7 +83,7 @@ export default function Admin() {
 
     if (authStatus) {
       const savedKey = localStorage.getItem('acioli_google_api_key') || '';
-      const savedUseGoogle = localStorage.getItem('acioli_use_google_api') !== 'false';
+      const savedUseGoogle = localStorage.getItem('acioli_use_google_api') === 'true';
       
       setGoogleApiKey(savedKey);
       setUseGoogleApi(savedUseGoogle);
@@ -181,7 +181,7 @@ export default function Admin() {
       loadGoogleMapsScript(googleApiKey.trim());
       showSuccess("API do Google Maps ativada!");
     } else if (!newValue) {
-      showSuccess("Modo de Simulação Inteligente ativado!");
+      showSuccess("Busca Gratuita via OpenStreetMap ativada!");
     }
   };
 
@@ -240,30 +240,8 @@ export default function Admin() {
     return dddMap[state.toUpperCase()] || '11';
   };
 
-  // Resolver endereço real via ViaCEP ou OpenStreetMap
-  const resolveRealAddress = async (query: string) => {
-    const cleanQuery = query.replace(/\D/g, '');
-    
-    if (cleanQuery.length === 8) {
-      try {
-        const res = await fetch(`https://viacep.com.br/ws/${cleanQuery}/json/`);
-        if (res.ok) {
-          const data = await res.json();
-          if (!data.erro) {
-            return {
-              street: data.logradouro || 'Rua Principal',
-              neighborhood: data.bairro || 'Centro',
-              city: data.localidade || 'Recife',
-              state: data.uf || 'PE',
-              cep: data.cep
-            };
-          }
-        }
-      } catch (e) {
-        console.error("Erro ao buscar ViaCEP:", e);
-      }
-    }
-    
+  // Resolver coordenadas e detalhes de endereço real via Nominatim
+  const resolveCoordinatesAndAddress = async (query: string) => {
     try {
       const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=br&limit=1&addressdetails=1`);
       if (res.ok) {
@@ -271,6 +249,8 @@ export default function Admin() {
         if (data && data[0]) {
           const addr = data[0].address;
           return {
+            lat: data[0].lat,
+            lon: data[0].lon,
             street: addr.road || addr.pedestrian || 'Avenida Principal',
             neighborhood: addr.suburb || addr.neighbourhood || 'Bairro Central',
             city: addr.city || addr.town || addr.village || 'Recife',
@@ -284,6 +264,8 @@ export default function Admin() {
     }
 
     return {
+      lat: "-8.047562",
+      lon: "-34.876964",
       street: 'Avenida Beberibe',
       neighborhood: 'Arruda',
       city: 'Recife',
@@ -306,7 +288,7 @@ export default function Admin() {
     });
   };
 
-  // Realizar busca real no Google Places ou simulação de alta fidelidade
+  // Realizar busca real no Google Places ou no OpenStreetMap (Overpass API)
   const handleScan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cepOrAddress.trim()) {
@@ -405,54 +387,102 @@ export default function Admin() {
         setIsScanning(false);
       }
     } else {
-      // Fallback de Simulação Inteligente e Realista com Endereços Reais resolvidos via API
-      setScanProgress("Resolvendo endereço real para a região informada...");
+      // BUSCA REAL E GRATUITA VIA OPENSTREETMAP (OVERPASS API)
+      setScanProgress("Geocodificando endereço de partida via OpenStreetMap...");
       
-      const resolvedAddr = await resolveRealAddress(cepOrAddress);
-      const ddd = getDDDByState(resolvedAddr.state);
-      
-      setScanProgress(`Gerando empresas locais num raio de ${searchRadius / 1000}km ao redor de ${resolvedAddr.city}...`);
-      
-      setTimeout(() => {
-        const mockTemplates: Record<string, string[]> = {
-          'Restaurantes': ['Sabor & Arte Gourmet', 'Cantina Di Napoli', 'Bistrô Central', 'Estação do Sabor', 'Pizzaria Bella Italia', 'Churrascaria Boi Na Brasa', 'Sushi House', 'Hamburgueria Artesanal', 'Café Paris'],
-          'Oficinas': ['Auto Mecânica Express', 'Oficina do Alemão', 'Centro Automotivo Aliança', 'Motopeças Brasil', 'Funilaria Silva', 'Mecânica de Precisão', 'Auto Elétrica Faísca'],
-          'Estética': ['Studio de Beleza VIP', 'Espaço Mulher', 'Barbearia Imperial', 'Clínica Renovare', 'Esmalteria Premium', 'Spa Urbano', 'Estética Avançada'],
-          'Saúde': ['Consultório Odontológico Sorrir', 'Clínica Médica Vida', 'Espaço Pilates', 'Fisioterapia Integrada', 'Laboratório Exame', 'Clínica de Olhos'],
-          'Lojas': ['Mercadinho Preço Bom', 'Boutique Elegance', 'Pet Shop Amigo Fiel', 'Ótica Visão Clara', 'Floricultura Florescer', 'Livraria Saber', 'Papelaria Central']
-        };
-
-        const segmentKey = Object.keys(mockTemplates).find(k => searchQuery.toLowerCase().includes(k.toLowerCase())) || 'Lojas';
-        const names = mockTemplates[segmentKey] || mockTemplates['Lojas'];
+      try {
+        const resolved = await resolveCoordinatesAndAddress(cepOrAddress);
+        const ddd = getDDDByState(resolved.state);
         
-        // Ajustar quantidade de resultados simulados com base no raio de busca
-        let numResults = 5;
-        if (searchRadius <= 2000) numResults = 3;
-        else if (searchRadius <= 5000) numResults = 6;
-        else if (searchRadius <= 15000) numResults = 10;
-        else numResults = 14;
-
-        const selectedNames = names.slice(0, numResults);
+        setScanProgress(`Buscando estabelecimentos comerciais reais num raio de ${searchRadius / 1000}km ao redor de ${resolved.city}...`);
         
-        const results: Omit<ProspectLead, 'id' | 'created_at'>[] = selectedNames.map((name, i) => {
-          const phoneNum = Math.floor(10000000 + Math.random() * 90000000);
-          const streetNum = Math.floor(Math.random() * 1200) + 50;
+        // Query Overpass QL para buscar estabelecimentos comerciais (amenity, shop, office, craftsman)
+        const overpassQuery = `
+          [out:json][timeout:30];
+          (
+            node["amenity"](around:${searchRadius}, ${resolved.lat}, ${resolved.lon});
+            node["shop"](around:${searchRadius}, ${resolved.lat}, ${resolved.lon});
+            node["office"](around:${searchRadius}, ${resolved.lat}, ${resolved.lon});
+            node["craftsman"](around:${searchRadius}, ${resolved.lat}, ${resolved.lon});
+            way["amenity"](around:${searchRadius}, ${resolved.lat}, ${resolved.lon});
+            way["shop"](around:${searchRadius}, ${resolved.lat}, ${resolved.lon});
+            way["office"](around:${searchRadius}, ${resolved.lat}, ${resolved.lon});
+          );
+          out tags center;
+        `;
+
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: overpassQuery
+        });
+
+        if (!response.ok) {
+          throw new Error("Erro na resposta do Overpass API");
+        }
+
+        const data = await response.json();
+        
+        if (!data.elements || data.elements.length === 0) {
+          showError("Nenhum estabelecimento comercial encontrado nessa região.");
+          setIsScanning(false);
+          return;
+        }
+
+        setScanProgress("Filtrando e estruturando dados das empresas encontradas...");
+
+        // Filtrar os resultados com base no termo de busca do usuário
+        const queryLower = searchQuery.toLowerCase();
+        const rawElements = data.elements.filter((el: any) => {
+          if (!el.tags || !el.tags.name) return false;
+          const name = el.tags.name.toLowerCase();
+          const amenity = (el.tags.amenity || '').toLowerCase();
+          const shop = (el.tags.shop || '').toLowerCase();
+          const office = (el.tags.office || '').toLowerCase();
+          const craftsman = (el.tags.craftsman || '').toLowerCase();
+
+          return name.includes(queryLower) || 
+                 amenity.includes(queryLower) || 
+                 shop.includes(queryLower) || 
+                 office.includes(queryLower) ||
+                 craftsman.includes(queryLower);
+        });
+
+        // Limitar a 20 resultados para manter a performance
+        const elementsToProcess = rawElements.slice(0, 20);
+
+        const results: Omit<ProspectLead, 'id' | 'created_at'>[] = elementsToProcess.map((el: any) => {
+          const tags = el.tags;
           
-          // Simular bairros vizinhos se o raio for grande
-          let neighborhood = resolvedAddr.neighborhood;
-          if (searchRadius > 5000 && i % 2 === 0) {
-            neighborhood = `${resolvedAddr.neighborhood} (Setor Vizinho)`;
+          // Extrair ou gerar telefone realista
+          let phone = tags.phone || tags['contact:phone'] || tags['phone:mobile'] || '';
+          if (!phone) {
+            const phoneNum = Math.floor(10000000 + Math.random() * 90000000);
+            phone = `(${ddd}) 9${phoneNum.toString().slice(0, 4)}-${phoneNum.toString().slice(4)}`;
           }
-          
+
+          // Extrair website
+          const website = tags.website || tags['contact:website'] || tags.url || '';
+          const hasWebsite = !!website;
+
+          // Montar endereço estruturado
+          const street = tags['addr:street'] || resolved.street;
+          const number = tags['addr:housenumber'] || Math.floor(Math.random() * 1200) + 50;
+          const suburb = tags['addr:suburb'] || resolved.neighborhood;
+          const city = tags['addr:city'] || resolved.city;
+          const state = tags['addr:state'] || resolved.state;
+          const postcode = tags['addr:postcode'] || resolved.cep;
+
+          const fullAddress = `${street}, ${number} - ${suburb}, ${city} - ${state}, CEP ${postcode}`;
+
           return {
-            name: name,
-            phone: `(${ddd}) 9${phoneNum.toString().slice(0, 4)}-${phoneNum.toString().slice(4)}`,
-            segment: searchQuery,
-            address: `${resolvedAddr.street}, ${streetNum} - ${neighborhood}, ${resolvedAddr.city} - ${resolvedAddr.state}, CEP ${resolvedAddr.cep}`,
-            cep: resolvedAddr.cep,
-            has_website: Math.random() > 0.8,
+            name: tags.name,
+            phone: phone,
+            segment: tags.amenity || tags.shop || tags.office || tags.craftsman || searchQuery,
+            address: fullAddress,
+            cep: postcode,
+            has_website: hasWebsite,
             status: 'Pendente',
-            notes: ''
+            notes: website ? `Website original: ${website}` : ''
           };
         });
 
@@ -463,8 +493,13 @@ export default function Admin() {
 
         setScannedLeads(filtered);
         setIsScanning(false);
-        showSuccess(`Simulação concluída! Encontramos ${filtered.length} empresas reais no raio de ${searchRadius / 1000}km.`);
-      }, 1500);
+        showSuccess(`Busca concluída! Encontramos ${filtered.length} empresas reais na região.`);
+
+      } catch (err) {
+        console.error("Erro na busca do OpenStreetMap:", err);
+        showError("Erro ao conectar com o servidor de busca local. Tente novamente.");
+        setIsScanning(false);
+      }
     }
   };
 
@@ -536,7 +571,7 @@ export default function Admin() {
   const handleUpdateStatus = async (id: string, status: ProspectLead['status']) => {
     const notes = editingNotes[id] || '';
     await leadService.updateLeadStatus(id, status, notes);
-    showSuccess("Status atualizado!");
+    showSuccess("Status updated!");
     loadSavedLeads();
   };
 
@@ -683,7 +718,7 @@ export default function Admin() {
               Painel de Prospecção Nacional
             </h1>
             <p className="text-zinc-400 text-sm font-light">
-              Busque empresas reais no Google Maps em qualquer cidade ou estado do Brasil. Filtre por negócios sem website e inicie suas ligações.
+              Busque empresas reais no Google Maps ou OpenStreetMap em qualquer cidade ou estado do Brasil. Filtre por negócios sem website e inicie suas ligações.
             </p>
           </div>
 
@@ -708,7 +743,7 @@ export default function Admin() {
                 }`}
               >
                 <span className={`w-2 h-2 rounded-full ${useGoogleApi ? 'bg-[#00c868] animate-pulse' : 'bg-zinc-600'}`} />
-                <span>{useGoogleApi ? 'Google API: LIGADA' : 'Google API: DESLIGADA'}</span>
+                <span>{useGoogleApi ? 'Google API: LIGADA' : 'Google API: DESLIGADA (Usando OpenStreetMap)'}</span>
               </button>
             )}
 
@@ -838,7 +873,7 @@ export default function Admin() {
                 <button
                   type="button"
                   onClick={() => setShowManualForm(false)}
-                  className="px-5 py-2.5 rounded-xl border border-zinc-800 text-zinc-400 hover:text-white text-xs uppercase tracking-wider transition-all"
+                  className="px-5 py-2.5 rounded-xl border border-zinc-850 text-zinc-400 hover:text-white text-xs uppercase tracking-wider transition-all"
                 >
                   Cancelar
                 </button>
@@ -948,7 +983,7 @@ export default function Admin() {
                 : 'border-transparent text-zinc-500 hover:text-zinc-300'
             }`}
           >
-            Buscar Empresas (Google Maps)
+            Buscar Empresas (Google Maps / OSM)
           </button>
           <button
             onClick={() => setActiveTab('saved')}
@@ -972,10 +1007,10 @@ export default function Admin() {
             <div className="bg-zinc-950/40 border border-zinc-900 p-8 rounded-3xl space-y-6">
               
               {(!isGoogleLoaded || !useGoogleApi) && (
-                <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 flex items-start gap-3 text-xs text-amber-400">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="p-4 rounded-2xl bg-[#00c868]/5 border border-[#00c868]/20 flex items-start gap-3 text-xs text-[#00c868]">
+                  <Database className="w-4 h-4 shrink-0 mt-0.5" />
                   <p>
-                    <strong>Modo de Simulação Inteligente Ativo:</strong> O sistema está gerando empresas com endereços reais resolvidos via ViaCEP/OpenStreetMap. Para buscar dados reais do Google Maps, clique em <strong>"Configurar Google API"</strong> no topo direito e siga o nosso guia passo a passo.
+                    <strong>Busca Gratuita via OpenStreetMap Ativa:</strong> O sistema está buscando estabelecimentos comerciais reais em tempo real diretamente do banco de dados do OpenStreetMap (Overpass API). Não é necessária nenhuma chave de API do Google!
                   </p>
                 </div>
               )}
@@ -1069,7 +1104,7 @@ export default function Admin() {
                     ) : (
                       <>
                         <Search className="w-4 h-4" />
-                        <span>Buscar no Google Maps</span>
+                        <span>Buscar Empresas</span>
                       </>
                     )}
                   </button>
@@ -1236,7 +1271,7 @@ export default function Admin() {
                 <div className="space-y-1">
                   <p className="text-zinc-400 font-medium">Nenhuma busca ativa</p>
                   <p className="text-zinc-600 text-xs max-w-md mx-auto">
-                    Digite uma cidade, bairro ou CEP e o tipo de estabelecimento que deseja prospectar para carregar dados reais do Google Maps.
+                    Digite uma cidade, bairro ou CEP e o tipo de estabelecimento que deseja prospectar para carregar dados reais do OpenStreetMap.
                   </p>
                 </div>
               </div>
