@@ -6,7 +6,7 @@ import {
   Search, MapPin, Phone, Globe, Save, CheckCircle, 
   Trash2, PhoneCall, Database, AlertCircle, RefreshCw, 
   TrendingUp, Users, CheckSquare, FileText, ArrowLeft, 
-  ExternalLink, Copy, Settings, Check, Info, PlusCircle, Filter, Sliders, HelpCircle, Lock, User, LogOut
+  ExternalLink, Copy, Settings, Check, Info, PlusCircle, Filter, Sliders, HelpCircle, Lock, User, LogOut, Image as ImageIcon
 } from 'lucide-react';
 import { leadService, ProspectLead, isSupabaseConfigured } from '@/lib/supabase';
 import { showSuccess, showError } from '@/utils/toast';
@@ -71,7 +71,8 @@ export default function Admin() {
     address: '',
     cep: '',
     has_website: false,
-    notes: ''
+    notes: '',
+    image_url: ''
   });
 
   const autocompleteRef = useRef<HTMLDivElement>(null);
@@ -298,6 +299,31 @@ export default function Admin() {
     };
   };
 
+  // Retorna uma imagem temática de alta resolução baseada no segmento do negócio
+  const getBusinessImage = (segment: string): string => {
+    const seg = segment.toLowerCase();
+    if (seg.includes('restaurante') || seg.includes('pizzaria') || seg.includes('sushi') || seg.includes('bistrô') || seg.includes('churrascaria') || seg.includes('comida') || seg.includes('food') || seg.includes('restaurant')) {
+      return 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=500&auto=format&fit=crop&q=60';
+    }
+    if (seg.includes('oficina') || seg.includes('mecânica') || seg.includes('mecanica') || seg.includes('car') || seg.includes('auto') || seg.includes('repair')) {
+      return 'https://images.unsplash.com/photo-1486006920555-c77dce18193b?w=500&auto=format&fit=crop&q=60';
+    }
+    if (seg.includes('estetica') || seg.includes('estética') || seg.includes('beleza') || seg.includes('salão') || seg.includes('salao') || seg.includes('barbearia') || seg.includes('barber') || seg.includes('spa') || seg.includes('beauty')) {
+      return 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=500&auto=format&fit=crop&q=60';
+    }
+    if (seg.includes('clinica') || seg.includes('clínica') || seg.includes('odonto') || seg.includes('médico') || seg.includes('medico') || seg.includes('dentista') || seg.includes('saúde') || seg.includes('saude') || seg.includes('clinic')) {
+      return 'https://images.unsplash.com/photo-1629909613654-28e377c37b09?w=500&auto=format&fit=crop&q=60';
+    }
+    if (seg.includes('academia') || seg.includes('fitness') || seg.includes('crossfit') || seg.includes('gym')) {
+      return 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=500&auto=format&fit=crop&q=60';
+    }
+    if (seg.includes('loja') || seg.includes('boutique') || seg.includes('comércio') || seg.includes('comercio') || seg.includes('mercado') || seg.includes('pet') || seg.includes('shop')) {
+      return 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=500&auto=format&fit=crop&q=60';
+    }
+    // Default: Prédio comercial moderno
+    return 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=500&auto=format&fit=crop&q=60';
+  };
+
   // Gerador de Fallback de Alta Fidelidade (Garante que o usuário sempre tenha leads reais para ligar)
   const generateHighFidelityFallback = (resolvedAddr: any, searchQuery: string, ddd: string): Omit<ProspectLead, 'id' | 'created_at'>[] => {
     const mockTemplates: Record<string, string[]> = {
@@ -341,36 +367,24 @@ export default function Admin() {
         cep: resolvedAddr.cep,
         has_website: false, // Foco total em prospecção de quem não tem site
         status: 'Pendente',
-        notes: 'Lead gerado via inteligência geográfica local.'
+        notes: 'Lead gerado via inteligência geográfica local.',
+        image_url: getBusinessImage(searchQuery)
       };
     });
   };
 
-  // Função auxiliar para verificar de forma ultra-rigorosa se um elemento possui qualquer presença web
-  const checkWebPresence = (tags: any): { hasWeb: boolean; url: string } => {
-    if (!tags) return { hasWeb: false, url: '' };
-    
-    const webKeys = [
-      'website', 'contact:website', 'url', 
-      'contact:facebook', 'facebook', 
-      'contact:instagram', 'instagram', 
-      'contact:twitter', 'twitter', 
-      'contact:linkedin', 'linkedin', 
-      'contact:youtube', 'youtube',
-      'website:menu', 'wikidata', 'wikipedia'
-    ];
-
-    for (const key of webKeys) {
-      const val = tags[key];
-      if (val && typeof val === 'string' && val.trim().length > 0) {
-        const cleanVal = val.trim().toLowerCase();
-        if (cleanVal !== 'no' && cleanVal !== 'none' && cleanVal !== 'false') {
-          return { hasWeb: true, url: val };
+  // Geocodificar endereço usando a API do Google
+  const geocodeAddressWithGoogle = (address: string): Promise<google.maps.LatLng | null> => {
+    return new Promise((resolve) => {
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ address: address }, (results, status) => {
+        if (status === google.maps.GeocoderStatus.OK && results && results[0]) {
+          resolve(results[0].geometry.location);
+        } else {
+          resolve(null);
         }
-      }
-    }
-
-    return { hasWeb: false, url: '' };
+      });
+    });
   };
 
   // Realizar busca real no Google Places ou no OpenStreetMap (Overpass API)
@@ -408,7 +422,7 @@ export default function Admin() {
             return;
           }
 
-          setScanProgress(`Encontradas ${results.length} empresas. Analisando detalhes e websites...`);
+          setScanProgress(`Encontradas ${results.length} empresas. Analisando detalhes, websites e fotos...`);
           const processedResults: Omit<ProspectLead, 'id' | 'created_at'>[] = [];
 
           const placesToFetch = results.slice(0, 15);
@@ -421,11 +435,19 @@ export default function Admin() {
               service.getDetails(
                 {
                   placeId: place.place_id || '',
-                  fields: ['name', 'formatted_phone_number', 'website', 'formatted_address', 'types']
+                  fields: ['name', 'formatted_phone_number', 'website', 'formatted_address', 'types', 'photos']
                 },
                 (details, detailStatus) => {
                   if (detailStatus === google.maps.places.PlacesServiceStatus.OK && details) {
                     const hasWebsite = !!details.website;
+                    
+                    // Extrair foto real do Google Places se disponível
+                    let googlePhotoUrl = '';
+                    if (details.photos && details.photos.length > 0) {
+                      googlePhotoUrl = details.photos[0].getUrl({ maxWidth: 500, maxHeight: 300 });
+                    } else {
+                      googlePhotoUrl = getBusinessImage(searchQuery);
+                    }
                     
                     processedResults.push({
                       name: details.name || place.name || '',
@@ -435,7 +457,8 @@ export default function Admin() {
                       cep: cepOrAddress,
                       has_website: hasWebsite,
                       status: 'Pendente',
-                      notes: details.website ? `Website: ${details.website}` : ''
+                      notes: details.website ? `Website: ${details.website}` : '',
+                      image_url: googlePhotoUrl
                     });
                   } else {
                     processedResults.push({
@@ -446,7 +469,8 @@ export default function Admin() {
                       cep: cepOrAddress,
                       has_website: false,
                       status: 'Pendente',
-                      notes: ''
+                      notes: '',
+                      image_url: getBusinessImage(searchQuery)
                     });
                   }
                   setTimeout(resolveDetail, 200);
@@ -596,16 +620,18 @@ export default function Admin() {
           const postcode = tags['addr:postcode'] || resolved.cep;
 
           const fullAddress = `${street}, ${number} - ${suburb}, ${city} - ${state}, CEP ${postcode}`;
+          const segmentName = tags.amenity || tags.shop || tags.office || tags.craftsman || searchQuery;
 
           return {
             name: tags.name,
             phone: phone,
-            segment: tags.amenity || tags.shop || tags.office || tags.craftsman || searchQuery,
+            segment: segmentName,
             address: fullAddress,
             cep: postcode,
             has_website: webCheck.hasWeb,
             status: 'Pendente',
-            notes: webCheck.hasWeb ? `Presença Web: ${webCheck.url}` : ''
+            notes: webCheck.hasWeb ? `Presença Web: ${webCheck.url}` : '',
+            image_url: getBusinessImage(segmentName)
           };
         });
 
@@ -687,7 +713,8 @@ export default function Admin() {
         cep: manualLead.cep || 'Não informado',
         has_website: manualLead.has_website,
         status: 'Pendente',
-        notes: manualLead.notes
+        notes: manualLead.notes,
+        image_url: manualLead.image_url || getBusinessImage(manualLead.segment || 'Geral')
       });
 
       showSuccess(`Lead "${manualLead.name}" cadastrado com sucesso!`);
@@ -699,7 +726,8 @@ export default function Admin() {
         address: '',
         cep: '',
         has_website: false,
-        notes: ''
+        notes: '',
+        image_url: ''
       });
       loadSavedLeads();
     } catch (err) {
@@ -981,6 +1009,17 @@ export default function Admin() {
                   placeholder="Ex: Rua das Flores, 123 - Bairro, Cidade - UF"
                   value={manualLead.address}
                   onChange={(e) => setManualLead(prev => ({ ...prev, address: e.target.value }))}
+                  className="w-full bg-zinc-900/40 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#00c868]"
+                />
+              </div>
+
+              <div className="md:col-span-2 space-y-2">
+                <label className="block text-zinc-400 text-[10px] uppercase tracking-wider font-bold font-mono">URL da Imagem (Opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: https://images.unsplash.com/..."
+                  value={manualLead.image_url}
+                  onChange={(e) => setManualLead(prev => ({ ...prev, image_url: e.target.value }))}
                   className="w-full bg-zinc-900/40 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#00c868]"
                 />
               </div>
@@ -1302,100 +1341,118 @@ export default function Admin() {
                   {scannedLeads.map((lead, idx) => (
                     <div 
                       key={idx} 
-                      className={`p-6 rounded-2xl border bg-zinc-950/60 transition-all flex flex-col justify-between space-y-6 ${
+                      className={`rounded-2xl border bg-zinc-950/60 transition-all flex flex-col justify-between overflow-hidden ${
                         lead.has_website 
                           ? 'border-zinc-900 opacity-60' 
                           : 'border-zinc-800 hover:border-[#00c868]/40 shadow-[0_10px_30px_rgba(0,0,0,0.5)]'
                       }`}
                     >
-                      <div className="space-y-4">
-                        <div className="flex items-start justify-between gap-4">
+                      {/* Imagem do Estabelecimento */}
+                      <div className="relative h-48 w-full overflow-hidden bg-zinc-900">
+                        {lead.image_url ? (
+                          <img 
+                            src={lead.image_url} 
+                            alt={lead.name} 
+                            className="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-zinc-700">
+                            <ImageIcon className="w-12 h-12" />
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
+                        
+                        {/* Badge de Website sobre a imagem */}
+                        <div className="absolute top-4 right-4">
+                          {lead.has_website ? (
+                            <span className="px-2.5 py-1 rounded-full bg-blue-500/90 backdrop-blur-md text-white text-[10px] font-bold uppercase tracking-wider">
+                              Possui Site
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-full bg-red-500/90 backdrop-blur-md text-white text-[10px] font-bold uppercase tracking-wider">
+                              Sem Website
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="p-6 space-y-6 flex-1 flex flex-col justify-between">
+                        <div className="space-y-4">
                           <div>
-                            <h4 className="text-base font-bold text-white leading-tight">{lead.name}</h4>
+                            <h4 className="text-lg font-bold text-white leading-tight">{lead.name}</h4>
                             <span className="inline-block mt-1.5 px-2.5 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400 uppercase tracking-wider">
                               {lead.segment}
                             </span>
                           </div>
 
-                          {/* Badge de Website */}
-                          {lead.has_website ? (
-                            <span className="px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-bold uppercase tracking-wider shrink-0">
-                              Possui Site
-                            </span>
-                          ) : (
-                            <span className="px-2.5 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-bold uppercase tracking-wider shrink-0">
-                              Sem Website
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Endereço Completo */}
-                        <div className="space-y-1.5 bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
-                          <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-[#00c868]" />
-                            Endereço Completo
-                          </p>
-                          <p className="text-xs text-zinc-300 leading-relaxed font-light">
-                            {lead.address}
-                          </p>
-                          <button
-                            onClick={() => copyToClipboard(lead.address, "Endereço copiado!")}
-                            className="text-[10px] text-zinc-500 hover:text-white transition-colors flex items-center gap-1 mt-1"
-                          >
-                            <Copy className="w-3 h-3" />
-                            <span>Copiar Endereço</span>
-                          </button>
-                        </div>
-
-                        {/* Telefone Comercial */}
-                        <div className="flex items-center justify-between bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
-                          <div className="space-y-0.5">
-                            <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Telefone Comercial</p>
-                            <p className="text-sm font-mono text-white font-bold">{lead.phone}</p>
-                          </div>
-                          {lead.phone !== 'Não informado' && (
+                          {/* Endereço Completo */}
+                          <div className="space-y-1.5 bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
+                            <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-[#00c868]" />
+                              Endereço Completo
+                            </p>
+                            <p className="text-xs text-zinc-300 leading-relaxed font-light">
+                              {lead.address}
+                            </p>
                             <button
-                              onClick={() => copyToClipboard(lead.phone, "Telefone copiado!")}
-                              className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
-                              title="Copiar Telefone"
+                              onClick={() => copyToClipboard(lead.address, "Endereço copiado!")}
+                              className="text-[10px] text-zinc-500 hover:text-white transition-colors flex items-center gap-1 mt-1"
                             >
-                              <Copy className="w-3.5 h-3.5" />
+                              <Copy className="w-3 h-3" />
+                              <span>Copiar Endereço</span>
                             </button>
-                          )}
+                          </div>
+
+                          {/* Telefone Comercial */}
+                          <div className="flex items-center justify-between bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
+                            <div className="space-y-0.5">
+                              <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Telefone Comercial</p>
+                              <p className="text-sm font-mono text-white font-bold">{lead.phone}</p>
+                            </div>
+                            {lead.phone !== 'Não informado' && (
+                              <button
+                                onClick={() => copyToClipboard(lead.phone, "Telefone copiado!")}
+                                className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
+                                title="Copiar Telefone"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </div>
 
-                      {/* Ações do Card */}
-                      <div className="pt-4 border-t border-zinc-900 flex items-center justify-between gap-3">
-                        <a
-                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lead.name} ${lead.address}`)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-zinc-500 hover:text-white transition-colors flex items-center gap-1"
-                        >
-                          <span>Ver no Google Maps</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-
-                        <div className="flex items-center gap-2">
-                          {lead.phone !== 'Não informado' && (
-                            <a
-                              href={`https://wa.me/55${lead.phone.replace(/\D/g, '')}?text=Olá! Vi sua empresa no Google Maps e notei que vocês não possuem um website oficial. Gostaria de apresentar uma proposta de design premium.`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-[#00c868] hover:border-[#00c868]/30 transition-all"
-                              title="Chamar no WhatsApp"
-                            >
-                              <ExternalLink className="w-4 h-4" />
-                            </a>
-                          )}
-                          <button
-                            onClick={() => handleSaveLead(lead, idx)}
-                            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#00c868]/10 border border-[#00c868]/20 text-[#00c868] text-xs font-bold uppercase tracking-wider hover:bg-[#00c868] hover:text-black transition-all"
+                        {/* Ações do Card */}
+                        <div className="pt-4 border-t border-zinc-900 flex items-center justify-between gap-3">
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lead.name} ${lead.address}`)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-zinc-500 hover:text-white transition-colors flex items-center gap-1"
                           >
-                            <Save className="w-3.5 h-3.5" />
-                            <span>Salvar Lead</span>
-                          </button>
+                            <span>Ver no Google Maps</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+
+                          <div className="flex items-center gap-2">
+                            {lead.phone !== 'Não informado' && (
+                              <a
+                                href={`https://wa.me/55${lead.phone.replace(/\D/g, '')}?text=Olá! Vi sua empresa no Google Maps e notei que vocês não possuem um website oficial. Gostaria de apresentar uma proposta de design premium.`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-[#00c868] hover:border-[#00c868]/30 transition-all"
+                                title="Chamar no WhatsApp"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                            )}
+                            <button
+                              onClick={() => handleSaveLead(lead, idx)}
+                              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#00c868]/10 border border-[#00c868]/20 text-[#00c868] text-xs font-bold uppercase tracking-wider hover:bg-[#00c868] hover:text-black transition-all"
+                            >
+                              <Save className="w-3.5 h-3.5" />
+                              <span>Salvar Lead</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1425,26 +1482,33 @@ export default function Admin() {
                 {savedLeads.map((lead) => (
                   <div 
                     key={lead.id} 
-                    className="p-6 rounded-2xl border border-zinc-900 bg-zinc-950/40 hover:border-zinc-800 transition-all flex flex-col justify-between space-y-6"
+                    className="rounded-2xl border border-zinc-900 bg-zinc-950/40 hover:border-zinc-800 transition-all flex flex-col justify-between overflow-hidden"
                   >
-                    <div className="space-y-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <h4 className="text-base font-bold text-white leading-tight">{lead.name}</h4>
-                          <span className="inline-block mt-1.5 px-2.5 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400 uppercase tracking-wider">
-                            {lead.segment}
-                          </span>
+                    {/* Imagem do Estabelecimento Salvo */}
+                    <div className="relative h-48 w-full overflow-hidden bg-zinc-900">
+                      {lead.image_url ? (
+                        <img 
+                          src={lead.image_url} 
+                          alt={lead.name} 
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-zinc-700">
+                          <ImageIcon className="w-12 h-12" />
                         </div>
-
-                        {/* Seletor de Status */}
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
+                      
+                      {/* Seletor de Status sobre a imagem */}
+                      <div className="absolute top-4 right-4">
                         <select
                           value={lead.status}
                           onChange={(e) => handleUpdateStatus(lead.id, e.target.value as ProspectLead['status'])}
-                          className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full border cursor-pointer focus:outline-none ${
-                            lead.status === 'Pendente' ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
-                            lead.status === 'Contatado' ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' :
-                            lead.status === 'Agendado' ? 'bg-[#00c868]/10 border-[#00c868]/30 text-[#00c868]' :
-                            'bg-zinc-800/50 border-zinc-700 text-zinc-400'
+                          className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full border cursor-pointer focus:outline-none backdrop-blur-md ${
+                            lead.status === 'Pendente' ? 'bg-amber-500/90 border-amber-500/30 text-white' :
+                            lead.status === 'Contatado' ? 'bg-blue-500/90 border-blue-500/30 text-white' :
+                            lead.status === 'Agendado' ? 'bg-[#00c868]/90 border-[#00c868]/30 text-black' :
+                            'bg-zinc-800/90 border-zinc-700 text-white'
                           }`}
                         >
                           <option value="Pendente" className="bg-zinc-950 text-amber-400">Pendente</option>
@@ -1453,100 +1517,111 @@ export default function Admin() {
                           <option value="Sem Interesse" className="bg-zinc-950 text-zinc-400">Sem Interesse</option>
                         </select>
                       </div>
-
-                      {/* Endereço Completo */}
-                      <div className="space-y-1.5 bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
-                        <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-[#00c868]" />
-                          Endereço Completo
-                        </p>
-                        <p className="text-xs text-zinc-300 leading-relaxed font-light">
-                          {lead.address}
-                        </p>
-                        <button
-                          onClick={() => copyToClipboard(lead.address, "Endereço copiado!")}
-                          className="text-[10px] text-zinc-500 hover:text-white transition-colors flex items-center gap-1 mt-1"
-                        >
-                          <Copy className="w-3 h-3" />
-                          <span>Copiar Endereço</span>
-                        </button>
-                      </div>
-
-                      {/* Telefone Comercial */}
-                      <div className="flex items-center justify-between bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
-                        <div className="space-y-0.5">
-                          <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Telefone Comercial</p>
-                          <p className="text-sm font-mono text-white font-bold">{lead.phone}</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => copyToClipboard(lead.phone, "Telefone copiado!")}
-                            className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
-                            title="Copiar Telefone"
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                          </button>
-                          <a
-                            href={`tel:${lead.phone.replace(/\D/g, '')}`}
-                            className="p-2 rounded-lg bg-[#00c868]/10 border border-[#00c868]/20 text-[#00c868] hover:bg-[#00c868] hover:text-black transition-all"
-                            title="Ligar para Empresa"
-                          >
-                            <Phone className="w-3.5 h-3.5" />
-                          </a>
-                        </div>
-                      </div>
-
-                      {/* Anotações / Histórico */}
-                      <div className="space-y-2">
-                        <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Anotações / Histórico de Contato</p>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            placeholder="Ex: Liguei dia 10, falar com o gerente Marcos na terça..."
-                            value={editingNotes[lead.id] || ''}
-                            onChange={(e) => setEditingNotes(prev => ({ ...prev, [lead.id]: e.target.value }))}
-                            className="flex-1 bg-zinc-900/40 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-[#00c868]"
-                          />
-                          <button
-                            onClick={() => handleSaveNotes(lead.id, lead.status)}
-                            className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
-                            title="Salvar anotação"
-                          >
-                            <Check className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
                     </div>
 
-                    {/* Ações do Card */}
-                    <div className="pt-4 border-t border-zinc-900 flex items-center justify-between gap-3 mt-4">
-                      <a
-                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lead.name} ${lead.address}`)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-zinc-500 hover:text-white transition-colors flex items-center gap-1"
-                      >
-                        <span>Ver no Google Maps</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
+                    <div className="p-6 space-y-6 flex-1 flex flex-col justify-between">
+                      <div className="space-y-4">
+                        <div>
+                          <h4 className="text-lg font-bold text-white leading-tight">{lead.name}</h4>
+                          <span className="inline-block mt-1.5 px-2.5 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400 uppercase tracking-wider">
+                            {lead.segment}
+                          </span>
+                        </div>
 
-                      <div className="flex items-center gap-2">
+                        {/* Endereço Completo */}
+                        <div className="space-y-1.5 bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
+                          <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider flex items-center gap-1">
+                            <MapPin className="w-3 h-3 text-[#00c868]" />
+                            Endereço Completo
+                          </p>
+                          <p className="text-xs text-zinc-300 leading-relaxed font-light">
+                            {lead.address}
+                          </p>
+                          <button
+                            onClick={() => copyToClipboard(lead.address, "Endereço copiado!")}
+                            className="text-[10px] text-zinc-500 hover:text-white transition-colors flex items-center gap-1 mt-1"
+                          >
+                            <Copy className="w-3 h-3" />
+                            <span>Copiar Endereço</span>
+                          </button>
+                        </div>
+
+                        {/* Telefone Comercial */}
+                        <div className="flex items-center justify-between bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
+                          <div className="space-y-0.5">
+                            <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Telefone Comercial</p>
+                            <p className="text-sm font-mono text-white font-bold">{lead.phone}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => copyToClipboard(lead.phone, "Telefone copiado!")}
+                              className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
+                              title="Copiar Telefone"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+                            <a
+                              href={`tel:${lead.phone.replace(/\D/g, '')}`}
+                              className="p-2 rounded-lg bg-[#00c868]/10 border border-[#00c868]/20 text-[#00c868] hover:bg-[#00c868] hover:text-black transition-all"
+                              title="Ligar para Empresa"
+                            >
+                              <Phone className="w-3.5 h-3.5" />
+                            </a>
+                          </div>
+                        </div>
+
+                        {/* Anotações / Histórico */}
+                        <div className="space-y-2">
+                          <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Anotações / Histórico de Contato</p>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              placeholder="Ex: Liguei dia 10, falar com o gerente Marcos na terça..."
+                              value={editingNotes[lead.id] || ''}
+                              onChange={(e) => setEditingNotes(prev => ({ ...prev, [lead.id]: e.target.value }))}
+                              className="flex-1 bg-zinc-900/40 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-[#00c868]"
+                            />
+                            <button
+                              onClick={() => handleSaveNotes(lead.id, lead.status)}
+                              className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
+                              title="Salvar anotação"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Ações do Card */}
+                      <div className="pt-4 border-t border-zinc-900 flex items-center justify-between gap-3 mt-4">
                         <a
-                          href={`https://wa.me/55${lead.phone.replace(/\D/g, '')}`}
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lead.name} ${lead.address}`)}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-[#00c868] transition-all"
-                          title="WhatsApp"
+                          className="text-xs text-zinc-500 hover:text-white transition-colors flex items-center gap-1"
                         >
-                          <ExternalLink className="w-4 h-4" />
+                          <span>Ver no Google Maps</span>
+                          <ExternalLink className="w-3 h-3" />
                         </a>
-                        <button
-                          onClick={() => handleDeleteLead(lead.id)}
-                          className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-red-400 hover:border-red-500/30 transition-all"
-                          title="Excluir Lead"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={`https://wa.me/55${lead.phone.replace(/\D/g, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-[#00c868] transition-all"
+                            title="WhatsApp"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                          </a>
+                          <button
+                            onClick={() => handleDeleteLead(lead.id)}
+                            className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-red-400 hover:border-red-500/30 transition-all"
+                            title="Excluir Lead"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>

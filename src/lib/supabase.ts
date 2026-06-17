@@ -15,6 +15,7 @@ export interface ProspectLead {
   has_website: boolean;
   status: 'Pendente' | 'Contatado' | 'Sem Interesse' | 'Agendado';
   notes?: string;
+  image_url?: string; // Campo opcional para a foto do estabelecimento
   created_at: string;
 }
 
