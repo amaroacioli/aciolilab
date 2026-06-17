@@ -6,7 +6,7 @@ import {
   Search, MapPin, Phone, Globe, Save, CheckCircle, 
   Trash2, PhoneCall, Database, AlertCircle, RefreshCw, 
   TrendingUp, Users, CheckSquare, FileText, ArrowLeft, 
-  ExternalLink, Copy, Settings, Check, Info, PlusCircle, Filter, Sliders, HelpCircle, Lock, User, LogOut, Play, Square, Loader2
+  ExternalLink, Copy, Settings, Check, Info, PlusCircle, Filter, Sliders, HelpCircle, Lock, User, LogOut, Play, Square, Loader2, Image as ImageIcon
 } from 'lucide-react';
 import { leadService, ProspectLead, isSupabaseConfigured } from '@/lib/supabase';
 import { showSuccess, showError } from '@/utils/toast';
