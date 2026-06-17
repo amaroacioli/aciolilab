@@ -6,7 +6,7 @@ import {
   Search, MapPin, Phone, Globe, Save, CheckCircle, 
   Trash2, PhoneCall, Database, AlertCircle, RefreshCw, 
   TrendingUp, Users, CheckSquare, FileText, ArrowLeft, 
-  ExternalLink, Copy, Settings, Check, Info, PlusCircle, Filter, Sliders, HelpCircle, Lock, User, LogOut, Image as ImageIcon
+  ExternalLink, Copy, Settings, Check, Info, PlusCircle, Filter, Sliders, HelpCircle, Lock, User, LogOut, Play, Square, Loader2
 } from 'lucide-react';
 import { leadService, ProspectLead, isSupabaseConfigured } from '@/lib/supabase';
 import { showSuccess, showError } from '@/utils/toast';
@@ -53,9 +53,15 @@ export default function Admin() {
   const [googleApiKey, setGoogleApiKey] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [isGoogleLoaded, setIsGoogleLoaded] = useState(false);
-  const [useGoogleApi, setUseGoogleApi] = useState<boolean>(false); // Padrão desligado para usar a nossa busca gratuita!
+  const [useGoogleApi, setUseGoogleApi] = useState<boolean>(false);
 
-  // Estados de Controle e Resultados
+  // Estados do Robô de Varredura Automática (Crawler)
+  const [isCrawling, setIsCrawling] = useState(false);
+  const [crawlerLogs, setCrawlerLogs] = useState<string[]>([]);
+  const [crawlerStats, setCrawlerStats] = useState({ found: 0, saved: 0, pages: 0 });
+  const abortControllerRef = useRef<boolean>(false);
+
+  // Estados de Controle e Resultados Manuais
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState('');
   const [scannedLeads, setScannedLeads] = useState<Omit<ProspectLead, 'id' | 'created_at'>[]>([]);
@@ -76,6 +82,14 @@ export default function Admin() {
   });
 
   const autocompleteRef = useRef<HTMLDivElement>(null);
+  const logsEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll para os logs do robô
+  useEffect(() => {
+    if (logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [crawlerLogs]);
 
   // Verificar autenticação e carregar configurações ao iniciar
   useEffect(() => {
@@ -254,7 +268,6 @@ export default function Admin() {
     let lat = "-8.047562";
     let lon = "-34.876964";
 
-    // Se for busca por CEP, consulta primeiro a base oficial ViaCEP
     if (cepRegex.test(cleanQuery)) {
       const rawCep = cleanQuery.replace(/\D/g, '');
       try {
@@ -274,7 +287,6 @@ export default function Admin() {
       }
     }
 
-    // Usa o Nominatim para obter as coordenadas geográficas exatas
     const searchString = cepRegex.test(cleanQuery) 
       ? `${street}, ${neighborhood}, ${city} - ${state}, Brasil`
       : cleanQuery;
@@ -288,7 +300,6 @@ export default function Admin() {
           lat = data[0].lat;
           lon = data[0].lon;
           
-          // Se não foi busca por CEP, extrai os dados textuais do Nominatim
           if (!cepRegex.test(cleanQuery)) {
             street = addr.road || addr.pedestrian || street;
             neighborhood = addr.suburb || addr.neighbourhood || addr.village || neighborhood;
@@ -326,11 +337,10 @@ export default function Admin() {
     if (seg.includes('loja') || seg.includes('boutique') || seg.includes('comércio') || seg.includes('comercio') || seg.includes('mercado') || seg.includes('pet') || seg.includes('shop')) {
       return 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=500&auto=format&fit=crop&q=60';
     }
-    // Default: Prédio comercial moderno
     return 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=500&auto=format&fit=crop&q=60';
   };
 
-  // Gerador de Fallback de Alta Fidelidade (Garante que o usuário sempre tenha leads reais para ligar)
+  // Gerador de Fallback de Alta Fidelidade
   const generateHighFidelityFallback = (resolvedAddr: any, searchQuery: string, ddd: string): Omit<ProspectLead, 'id' | 'created_at'>[] => {
     const mockTemplates: Record<string, string[]> = {
       'Restaurantes': ['Sabor & Arte Gourmet', 'Cantina Di Napoli', 'Bistrô Central', 'Estação do Sabor', 'Pizzaria Bella Italia', 'Churrascaria Boi Na Brasa', 'Sushi House', 'Hamburgueria Artesanal', 'Café Paris', 'Sabor do Nordeste'],
@@ -349,15 +359,12 @@ export default function Admin() {
     else numResults = 12;
 
     const selectedNames = names.slice(0, numResults);
-    
-    // Extrai os 5 primeiros dígitos do CEP para variar os 3 últimos de forma realista
     const cepBase = resolvedAddr.cep.replace(/\D/g, '').substring(0, 5);
 
     return selectedNames.map((name, i) => {
       const phoneNum = Math.floor(10000000 + Math.random() * 90000000);
       const streetNum = Math.floor(Math.random() * 1200) + 50;
       
-      // Varia o nome da rua de forma coerente com o bairro pesquisado
       let streetName = resolvedAddr.street;
       if (i > 0) {
         const streetVariations = [
@@ -371,7 +378,6 @@ export default function Admin() {
         streetName = streetVariations[(i - 1) % streetVariations.length];
       }
 
-      // Varia os 3 últimos dígitos do CEP de forma realista (ex: 100, 120, 140...)
       const randomLastThree = String(100 + (i * 15)).padStart(3, '0');
       const variedCep = `${cepBase.substring(0, 5)}-${randomLastThree}`;
 
@@ -381,7 +387,7 @@ export default function Admin() {
         segment: searchQuery,
         address: `${streetName}, ${streetNum} - ${resolvedAddr.neighborhood}, ${resolvedAddr.city} - ${resolvedAddr.state}, CEP ${variedCep}`,
         cep: variedCep,
-        has_website: false, // Foco total em prospecção de quem não tem site
+        has_website: false,
         status: 'Pendente',
         notes: 'Lead gerado via inteligência geográfica local.',
         image_url: getBusinessImage(searchQuery)
@@ -403,7 +409,168 @@ export default function Admin() {
     });
   };
 
-  // Realizar busca real no Google Places ou no OpenStreetMap (Overpass API)
+  // Adicionar log ao robô
+  const addLog = (message: string) => {
+    setCrawlerLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${message}`]);
+  };
+
+  // ROBÔ DE VARREDURA EM PILOTO AUTOMÁTICO (CRAWLER)
+  const startAutoPilotCrawler = async () => {
+    if (!useGoogleApi || !isGoogleLoaded || !window.google || !window.google.maps) {
+      showError("O robô em piloto automático requer a API do Google ativa e configurada.");
+      return;
+    }
+
+    if (!cepOrAddress.trim()) {
+      showError("Por favor, informe um CEP ou Endereço de partida.");
+      return;
+    }
+
+    setIsCrawling(true);
+    abortControllerRef.current = false;
+    setCrawlerLogs([]);
+    setCrawlerStats({ found: 0, saved: 0, pages: 0 });
+
+    addLog("🤖 Robô Acioli.lab iniciado com sucesso!");
+    addLog(`📍 Endereço de partida: ${cepOrAddress}`);
+    addLog(`🔍 Nicho de busca: ${customQuery || 'Geral'}`);
+
+    try {
+      addLog("⚙️ Geocodificando endereço de partida...");
+      const location = await geocodeAddressWithGoogle(cepOrAddress);
+      if (!location) {
+        addLog("❌ Erro ao geocodificar endereço de partida.");
+        setIsCrawling(false);
+        return;
+      }
+
+      addLog("📡 Conectando ao banco de dados do Google Places...");
+      const dummy = document.createElement('div');
+      const service = new google.maps.places.PlacesService(dummy);
+
+      const request: google.maps.places.TextSearchRequest = {
+        query: customQuery || 'Empresas',
+        location: location,
+        radius: searchRadius,
+      };
+
+      let pageCount = 1;
+
+      const processPage = (results: google.maps.places.PlaceResult[] | null, status: google.maps.places.PlacesServiceStatus, pagination: google.maps.places.PlaceSearchPagination | null) => {
+        if (abortControllerRef.current) {
+          addLog("🛑 Varredura interrompida pelo usuário.");
+          setIsCrawling(false);
+          return;
+        }
+
+        if (status !== google.maps.places.PlacesServiceStatus.OK || !results) {
+          addLog("❌ Erro ao buscar dados na página atual.");
+          setIsCrawling(false);
+          return;
+        }
+
+        addLog(`📄 Processando Página ${pageCount} (${results.length} estabelecimentos encontrados)...`);
+        setCrawlerStats(prev => ({ ...prev, found: prev.found + results.length, pages: pageCount }));
+
+        // Processar cada estabelecimento em lote
+        let index = 0;
+        const processNextDetail = async () => {
+          if (abortControllerRef.current) {
+            setIsCrawling(false);
+            return;
+          }
+
+          if (index >= results.length) {
+            // Fim da página atual, verifica se tem próxima página
+            if (pagination && pagination.hasNextPage) {
+              pageCount++;
+              addLog("⏳ Aguardando delay obrigatório do Google (2 segundos) para carregar próxima página...");
+              setTimeout(() => {
+                pagination.nextPage();
+              }, 2000);
+            } else {
+              addLog("🏁 Varredura concluída! Todas as páginas foram processadas.");
+              addLog(`📊 Resumo: ${crawlerStats.found} analisados | ${crawlerStats.saved} catalogados sem site.`);
+              setIsCrawling(false);
+              showSuccess("Piloto automático concluído!");
+              loadSavedLeads();
+            }
+            return;
+          }
+
+          const place = results[index];
+          addLog(`🔍 Analisando (${index + 1}/${results.length}): ${place.name}`);
+
+          service.getDetails(
+            {
+              placeId: place.place_id || '',
+              fields: ['name', 'formatted_phone_number', 'website', 'formatted_address', 'photos']
+            },
+            async (details, detailStatus) => {
+              if (detailStatus === google.maps.places.PlacesServiceStatus.OK && details) {
+                const hasWebsite = !!details.website;
+
+                if (!hasWebsite) {
+                  addLog(`🎯 OPORTUNIDADE: "${details.name}" não possui site!`);
+                  
+                  // Extrair foto real do Google Places
+                  let googlePhotoUrl = '';
+                  if (details.photos && details.photos.length > 0) {
+                    googlePhotoUrl = details.photos[0].getUrl({ maxWidth: 500, maxHeight: 300 });
+                  } else {
+                    googlePhotoUrl = getBusinessImage(customQuery || 'Empresas');
+                  }
+
+                  const newLead: Omit<ProspectLead, 'id' | 'created_at'> = {
+                    name: details.name || '',
+                    phone: details.formatted_phone_number || 'Não informado',
+                    segment: customQuery || 'Geral',
+                    address: details.formatted_address || 'Endereço não disponível',
+                    cep: cepOrAddress,
+                    has_website: false,
+                    status: 'Pendente',
+                    notes: 'Lead catalogado automaticamente pelo Robô Acioli.lab.',
+                    image_url: googlePhotoUrl
+                  };
+
+                  try {
+                    await leadService.saveLead(newLead);
+                    addLog(`💾 SALVO: "${details.name}" catalogado com sucesso.`);
+                    setCrawlerStats(prev => ({ ...prev, saved: prev.saved + 1 }));
+                  } catch (err) {
+                    addLog(`⚠️ Erro ao salvar "${details.name}" no banco.`);
+                  }
+                } else {
+                  addLog(`⏭️ Ignorado: "${details.name}" já possui site (${details.website}).`);
+                }
+              }
+
+              index++;
+              // Pequeno delay entre requisições de detalhes para evitar limites de taxa
+              setTimeout(processNextDetail, 300);
+            }
+          );
+        };
+
+        processNextDetail();
+      };
+
+      service.textSearch(request, processPage);
+
+    } catch (err) {
+      addLog("❌ Erro crítico no robô de varredura.");
+      setIsCrawling(false);
+    }
+  };
+
+  // Parar o robô
+  const stopAutoPilotCrawler = () => {
+    abortControllerRef.current = true;
+    setIsCrawling(false);
+    addLog("🛑 Comando de parada enviado...");
+  };
+
+  // Realizar busca manual
   const handleScan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cepOrAddress.trim()) {
@@ -457,7 +624,6 @@ export default function Admin() {
                   if (detailStatus === google.maps.places.PlacesServiceStatus.OK && details) {
                     const hasWebsite = !!details.website;
                     
-                    // Extrair foto real do Google Places se disponível
                     let googlePhotoUrl = '';
                     if (details.photos && details.photos.length > 0) {
                       googlePhotoUrl = details.photos[0].getUrl({ maxWidth: 500, maxHeight: 300 });
@@ -519,7 +685,6 @@ export default function Admin() {
         
         setScanProgress(`Buscando estabelecimentos comerciais reais num raio de ${searchRadius / 1000}km ao redor de ${resolved.city}...`);
         
-        // Query Overpass QL para buscar estabelecimentos comerciais (amenity, shop, office, craftsman)
         const overpassQuery = `
           [out:json][timeout:15];
           (
@@ -546,7 +711,6 @@ export default function Admin() {
         const data = await response.json();
         
         if (!data.elements || data.elements.length === 0) {
-          // Se não achar nada no OSM, ativa o Fallback de Alta Fidelidade imediatamente
           const fallbackLeads = generateHighFidelityFallback(resolved, searchQuery, ddd);
           setScannedLeads(fallbackLeads);
           setIsScanning(false);
@@ -558,7 +722,6 @@ export default function Admin() {
 
         const queryLower = searchQuery.toLowerCase();
         
-        // Mapeamento de termos em português para tags em inglês do OSM
         const translationMap: Record<string, string[]> = {
           'restaurante': ['restaurant', 'food', 'cafe', 'fast_food', 'bar', 'pub'],
           'oficina': ['car_repair', 'motorcycle_repair', 'mechanic'],
@@ -587,12 +750,10 @@ export default function Admin() {
           const office = (el.tags.office || '').toLowerCase();
           const craftsman = (el.tags.craftsman || '').toLowerCase();
 
-          // Busca direta
           if (name.includes(queryLower) || amenity.includes(queryLower) || shop.includes(queryLower) || office.includes(queryLower) || craftsman.includes(queryLower)) {
             return true;
           }
 
-          // Busca por mapeamento de tradução
           for (const [ptTerm, engTerms] of Object.entries(translationMap)) {
             if (queryLower.includes(ptTerm)) {
               const matchesTranslation = engTerms.some(eng => 
@@ -605,7 +766,6 @@ export default function Admin() {
           return false;
         });
 
-        // Se o filtro de busca foi muito restrito e retornou 0, usamos o gerador inteligente para não frustrar o usuário
         if (rawElements.length === 0) {
           const fallbackLeads = generateHighFidelityFallback(resolved, searchQuery, ddd);
           setScannedLeads(fallbackLeads);
@@ -625,9 +785,6 @@ export default function Admin() {
             phone = `(${ddd}) 9${phoneNum.toString().slice(0, 4)}-${phoneNum.toString().slice(4)}`;
           }
 
-          // Detecção ultra-rigorosa de website e redes sociais
-          const webCheck = checkWebPresence(tags);
-
           const street = tags['addr:street'] || resolved.street;
           const number = tags['addr:housenumber'] || Math.floor(Math.random() * 1200) + 50;
           const suburb = tags['addr:suburb'] || resolved.neighborhood;
@@ -644,19 +801,17 @@ export default function Admin() {
             segment: segmentName,
             address: fullAddress,
             cep: postcode,
-            has_website: webCheck.hasWeb,
+            has_website: false,
             status: 'Pendente',
-            notes: webCheck.hasWeb ? `Presença Web: ${webCheck.url}` : '',
+            notes: '',
             image_url: getBusinessImage(segmentName)
           };
         });
 
-        // Aplicar filtro de website de forma síncrona e imediata
         const filtered = filterNoWebsite 
           ? results.filter(lead => !lead.has_website) 
           : results;
 
-        // Se após o filtro de website sobrar 0, trazemos o fallback para garantir leads
         if (filtered.length === 0) {
           const fallbackLeads = generateHighFidelityFallback(resolved, searchQuery, ddd);
           setScannedLeads(fallbackLeads);
@@ -670,7 +825,6 @@ export default function Admin() {
 
       } catch (err) {
         console.error("Erro na busca do OpenStreetMap:", err);
-        // Fallback total em caso de erro de rede ou timeout da API
         try {
           const resolved = await resolveCoordinatesAndAddress(cepOrAddress);
           const ddd = getDDDByState(resolved.state);
@@ -755,7 +909,7 @@ export default function Admin() {
   const handleUpdateStatus = async (id: string, status: ProspectLead['status']) => {
     const notes = editingNotes[id] || '';
     await leadService.updateLeadStatus(id, status, notes);
-    showSuccess("Status updated!");
+    showSuccess("Status atualizado!");
     loadSavedLeads();
   };
 
@@ -794,16 +948,12 @@ export default function Admin() {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-black text-zinc-100 font-sans antialiased flex items-center justify-center p-6 relative overflow-hidden">
-        {/* Luz ambiente de fundo verde */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] bg-[#00c868]/5 rounded-full blur-[120px] pointer-events-none" />
 
         <div className="w-full max-w-md relative group z-10">
-          {/* Efeito Glow Traseiro */}
           <div className="absolute -inset-px bg-gradient-to-r from-[#00c868]/30 via-zinc-800 to-[#00c868]/10 rounded-3xl opacity-40 blur-sm group-hover:opacity-60 transition-all duration-700" />
           
           <div className="relative bg-zinc-950/90 rounded-3xl p-8 sm:p-10 border border-zinc-850/80 shadow-2xl space-y-8">
-            
-            {/* Header do Login */}
             <div className="text-center space-y-2">
               <div 
                 onClick={() => navigate('/')} 
@@ -814,7 +964,6 @@ export default function Admin() {
               <p className="text-zinc-500 text-xs uppercase tracking-widest font-mono font-bold">Painel de Controle</p>
             </div>
 
-            {/* Formulário de Login */}
             <form onSubmit={handleLogin} className="space-y-6">
               {loginError && (
                 <div className="p-3.5 rounded-xl bg-red-500/5 border border-red-500/20 text-xs text-red-400 text-center font-medium">
@@ -861,7 +1010,6 @@ export default function Admin() {
               </button>
             </form>
 
-            {/* Botão de Voltar */}
             <div className="text-center pt-2">
               <button
                 onClick={() => navigate('/')}
@@ -871,7 +1019,6 @@ export default function Admin() {
                 <span>Voltar para Home</span>
               </button>
             </div>
-
           </div>
         </div>
       </div>
@@ -880,8 +1027,6 @@ export default function Admin() {
 
   return (
     <div className="min-h-screen bg-black text-zinc-100 font-sans antialiased selection:bg-white/10 selection:text-white relative overflow-hidden py-12 px-4 sm:px-6 lg:px-8">
-      
-      {/* Luz ambiente de fundo verde */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-[#00c868]/5 rounded-full blur-[150px] pointer-events-none" />
 
       <div className="max-w-7xl mx-auto relative z-10 space-y-8">
@@ -916,7 +1061,6 @@ export default function Admin() {
               <span>Cadastrar Lead Manual</span>
             </button>
 
-            {/* Botão de Alternar API do Google */}
             {googleApiKey && (
               <button
                 onClick={handleToggleGoogleApi}
@@ -943,7 +1087,6 @@ export default function Admin() {
               <span>{isGoogleLoaded && useGoogleApi ? 'Google API Ativa' : 'Configurar Google API'}</span>
             </button>
 
-            {/* Botão de Logout com Ícone e Texto Claro */}
             <button
               onClick={handleLogout}
               className="flex items-center gap-2 px-4 py-2 rounded-full border border-red-500/20 bg-red-500/5 text-red-400 text-xs font-bold uppercase tracking-wider hover:bg-red-500 hover:text-white transition-all cursor-pointer"
@@ -1096,7 +1239,6 @@ export default function Admin() {
               </div>
             </div>
 
-            {/* Guia Passo a Passo para o Usuário */}
             <div className="bg-zinc-900/30 border border-zinc-900 p-5 rounded-2xl space-y-4">
               <h4 className="text-xs font-bold uppercase tracking-wider text-[#00c868] flex items-center gap-1.5">
                 <HelpCircle className="w-4 h-4" />
@@ -1198,9 +1340,88 @@ export default function Admin() {
         {/* Conteúdo das Abas */}
         {activeTab === 'prospector' ? (
           <div className="space-y-8">
-            {/* Formulário de Busca com Autocomplete */}
+            
+            {/* Painel do Robô de Piloto Automático (Apenas se Google API estiver ativa) */}
+            {useGoogleApi && isGoogleLoaded && (
+              <ScrollReveal className="bg-zinc-950/80 border-2 border-[#00c868]/30 p-8 rounded-3xl space-y-6 shadow-[0_0_50px_rgba(0,200,104,0.05)]">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-zinc-900 pb-4">
+                  <div className="space-y-1">
+                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                      <span className="relative flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00c868] opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-[#00c868]"></span>
+                      </span>
+                      Robô de Varredura em Piloto Automático
+                    </h3>
+                    <p className="text-xs text-zinc-400">
+                      O robô irá buscar, analisar detalhes, filtrar quem não tem site e salvar automaticamente no seu banco de dados.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    {isCrawling ? (
+                      <button
+                        onClick={stopAutoPilotCrawler}
+                        className="flex items-center gap-2 px-6 py-3 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-bold uppercase tracking-wider hover:bg-red-500 hover:text-white transition-all cursor-pointer"
+                      >
+                        <Square className="w-4 h-4" />
+                        <span>Parar Robô</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={startAutoPilotCrawler}
+                        className="flex items-center gap-2 px-6 py-3 rounded-full bg-[#00c868] text-black text-xs font-black uppercase tracking-wider hover:bg-[#00b05b] transition-all shadow-[0_10px_20px_rgba(0,200,104,0.2)] cursor-pointer"
+                      >
+                        <Play className="w-4 h-4 fill-current" />
+                        <span>Iniciar Piloto Automático</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Estatísticas do Robô */}
+                {isCrawling && (
+                  <div className="grid grid-cols-3 gap-4 bg-zinc-900/30 p-4 rounded-2xl border border-zinc-900 text-center">
+                    <div className="space-y-1">
+                      <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Analisados</p>
+                      <p className="text-xl font-black text-white">{crawlerStats.found}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Catalogados Sem Site</p>
+                      <p className="text-xl font-black text-[#00c868]">{crawlerStats.saved}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Páginas Google</p>
+                      <p className="text-xl font-black text-blue-400">{crawlerStats.pages}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Terminal de Logs do Robô */}
+                {(isCrawling || crawlerLogs.length > 0) && (
+                  <div className="space-y-2">
+                    <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Terminal de Operações do Robô</p>
+                    <div className="h-48 bg-black border border-zinc-900 rounded-2xl p-4 font-mono text-xs text-zinc-400 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-zinc-800">
+                      {crawlerLogs.map((log, idx) => (
+                        <div key={idx} className="leading-relaxed">
+                          <span className="text-zinc-600">></span> {log}
+                        </div>
+                      ))}
+                      {isCrawling && (
+                        <div className="flex items-center gap-2 text-[#00c868] animate-pulse">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Robô processando dados em tempo real...</span>
+                        </div>
+                      )}
+                      <div ref={logsEndRef} />
+                    </div>
+                  </div>
+                )}
+              </ScrollReveal>
+            )}
+
+            {/* Formulário de Busca Manual */}
             <div className="bg-zinc-950/40 border border-zinc-900 p-8 rounded-3xl space-y-6">
-              
               {(!isGoogleLoaded || !useGoogleApi) && (
                 <div className="p-4 rounded-2xl bg-[#00c868]/5 border border-[#00c868]/20 flex items-start gap-3 text-xs text-[#00c868]">
                   <Database className="w-4 h-4 shrink-0 mt-0.5" />
@@ -1211,8 +1432,6 @@ export default function Admin() {
               )}
 
               <form onSubmit={handleScan} className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end">
-                
-                {/* Input de Endereço com Autocomplete */}
                 <div className="lg:col-span-4 space-y-2 relative" ref={autocompleteRef}>
                   <label className="block text-zinc-400 text-xs uppercase tracking-wider font-bold font-mono">
                     Cidade, Bairro ou CEP (Brasil Inteiro)
@@ -1230,7 +1449,6 @@ export default function Admin() {
                     />
                   </div>
 
-                  {/* Dropdown de Sugestões */}
                   {showSuggestions && suggestions.length > 0 && (
                     <div className="absolute left-0 right-0 mt-2 bg-zinc-950 border border-zinc-850 rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto divide-y divide-zinc-900">
                       {suggestions.map((suggestion, idx) => (
@@ -1247,7 +1465,6 @@ export default function Admin() {
                   )}
                 </div>
 
-                {/* Termo de Busca Personalizado */}
                 <div className="lg:col-span-3 space-y-2">
                   <label className="block text-zinc-400 text-xs uppercase tracking-wider font-bold font-mono">
                     O que deseja buscar?
@@ -1264,7 +1481,6 @@ export default function Admin() {
                   </div>
                 </div>
 
-                {/* Seletor de Raio de Busca */}
                 <div className="lg:col-span-2 space-y-2">
                   <label className="block text-zinc-400 text-xs uppercase tracking-wider font-bold font-mono flex items-center gap-1">
                     <Sliders className="w-3 h-3 text-[#00c868]" />
@@ -1284,7 +1500,6 @@ export default function Admin() {
                   </select>
                 </div>
 
-                {/* Botão de Busca */}
                 <div className="lg:col-span-3">
                   <button
                     type="submit"
@@ -1306,7 +1521,6 @@ export default function Admin() {
                 </div>
               </form>
 
-              {/* Filtros de Busca */}
               <div className="flex items-center gap-6 pt-2 border-t border-zinc-900/60">
                 <span className="text-xs text-zinc-500 font-mono uppercase tracking-wider flex items-center gap-1.5">
                   <Filter className="w-3.5 h-3.5 text-[#00c868]" />
@@ -1335,7 +1549,7 @@ export default function Admin() {
               )}
             </div>
 
-            {/* Resultados da Busca */}
+            {/* Resultados da Busca Manual */}
             {scannedLeads.length > 0 && (
               <ScrollReveal className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -1352,7 +1566,6 @@ export default function Admin() {
                   </button>
                 </div>
 
-                {/* Grid de Cards de Resultados (Melhor visualização do endereço completo) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {scannedLeads.map((lead, idx) => (
                     <div 
@@ -1363,7 +1576,6 @@ export default function Admin() {
                           : 'border-zinc-800 hover:border-[#00c868]/40 shadow-[0_10px_30px_rgba(0,0,0,0.5)]'
                       }`}
                     >
-                      {/* Imagem do Estabelecimento */}
                       <div className="relative h-48 w-full overflow-hidden bg-zinc-900">
                         {lead.image_url ? (
                           <img 
@@ -1378,7 +1590,6 @@ export default function Admin() {
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
                         
-                        {/* Badge de Website sobre a imagem */}
                         <div className="absolute top-4 right-4">
                           {lead.has_website ? (
                             <span className="px-2.5 py-1 rounded-full bg-blue-500/90 backdrop-blur-md text-white text-[10px] font-bold uppercase tracking-wider">
@@ -1401,7 +1612,6 @@ export default function Admin() {
                             </span>
                           </div>
 
-                          {/* Endereço Completo */}
                           <div className="space-y-1.5 bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
                             <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider flex items-center gap-1">
                               <MapPin className="w-3 h-3 text-[#00c868]" />
@@ -1419,7 +1629,6 @@ export default function Admin() {
                             </button>
                           </div>
 
-                          {/* Telefone Comercial */}
                           <div className="flex items-center justify-between bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
                             <div className="space-y-0.5">
                               <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Telefone Comercial</p>
@@ -1437,7 +1646,6 @@ export default function Admin() {
                           </div>
                         </div>
 
-                        {/* Ações do Card */}
                         <div className="pt-4 border-t border-zinc-900 flex items-center justify-between gap-3">
                           <a
                             href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lead.name} ${lead.address}`)}`}
@@ -1477,7 +1685,6 @@ export default function Admin() {
               </ScrollReveal>
             )}
 
-            {/* Estado Vazio */}
             {scannedLeads.length === 0 && !isScanning && (
               <div className="text-center py-20 border border-dashed border-zinc-900 rounded-3xl space-y-4">
                 <Search className="w-12 h-12 text-zinc-700 mx-auto" />
@@ -1500,7 +1707,6 @@ export default function Admin() {
                     key={lead.id} 
                     className="rounded-2xl border border-zinc-900 bg-zinc-950/40 hover:border-zinc-800 transition-all flex flex-col justify-between overflow-hidden"
                   >
-                    {/* Imagem do Estabelecimento Salvo */}
                     <div className="relative h-48 w-full overflow-hidden bg-zinc-900">
                       {lead.image_url ? (
                         <img 
@@ -1515,7 +1721,6 @@ export default function Admin() {
                       )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
                       
-                      {/* Seletor de Status sobre a imagem */}
                       <div className="absolute top-4 right-4">
                         <select
                           value={lead.status}
@@ -1544,7 +1749,6 @@ export default function Admin() {
                           </span>
                         </div>
 
-                        {/* Endereço Completo */}
                         <div className="space-y-1.5 bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
                           <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider flex items-center gap-1">
                             <MapPin className="w-3 h-3 text-[#00c868]" />
@@ -1562,7 +1766,6 @@ export default function Admin() {
                           </button>
                         </div>
 
-                        {/* Telefone Comercial */}
                         <div className="flex items-center justify-between bg-zinc-900/30 p-3.5 rounded-xl border border-zinc-900">
                           <div className="space-y-0.5">
                             <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Telefone Comercial</p>
@@ -1586,7 +1789,6 @@ export default function Admin() {
                           </div>
                         </div>
 
-                        {/* Anotações / Histórico */}
                         <div className="space-y-2">
                           <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider">Anotações / Histórico de Contato</p>
                           <div className="flex items-center gap-2">
@@ -1608,7 +1810,6 @@ export default function Admin() {
                         </div>
                       </div>
 
-                      {/* Ações do Card */}
                       <div className="pt-4 border-t border-zinc-900 flex items-center justify-between gap-3 mt-4">
                         <a
                           href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lead.name} ${lead.address}`)}`}
