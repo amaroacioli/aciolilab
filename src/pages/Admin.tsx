@@ -1404,7 +1404,7 @@ export default function Admin() {
                     <div className="h-48 bg-black border border-zinc-900 rounded-2xl p-4 font-mono text-xs text-zinc-400 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-zinc-800">
                       {crawlerLogs.map((log, idx) => (
                         <div key={idx} className="leading-relaxed">
-                          <span className="text-zinc-600">></span> {log}
+                          <span className="text-zinc-600">{"\u003e"}</span> {log}
                         </div>
                       ))}
                       {isCrawling && (
