@@ -5,8 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Upload, FileText, Search, Filter, Trash2, Copy, ExternalLink, 
   Lock, User, LogOut, ArrowLeft, Globe, Phone, MapPin, Star, 
-  FileSpreadsheet, AlertCircle, MessageSquare, CheckCircle, Clock, XCircle, HelpCircle,
-  RefreshCw, Calendar, Pencil, Check, X
+  AlertCircle, MessageSquare, Calendar, Pencil, Check, X, Save
 } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
 import { leadService, RadarLead, isSupabaseConfigured } from '@/lib/supabase';
@@ -24,6 +23,10 @@ export default function Admin() {
   const [leads, setLeads] = useState<RadarLead[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   
+  // Temporary Preview States (for manual saving)
+  const [tempLeads, setTempLeads] = useState<RadarLead[] | null>(null);
+  const [tempGroupName, setTempGroupName] = useState('');
+
   // Filter States
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSegment, setSelectedSegment] = useState('todos');
@@ -94,13 +97,13 @@ export default function Admin() {
     return `Leads - ${day}/${month}/${year} ${hours}:${minutes}`;
   };
 
-  // Handle JSON File Upload
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle JSON File Upload (Loads into preview state)
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
         
@@ -109,10 +112,10 @@ export default function Admin() {
           return;
         }
 
-        const groupName = getFormattedGroupName();
+        const defaultGroupName = getFormattedGroupName();
 
         // Validate and normalize structure
-        const validatedLeads: RadarLead[] = json.map((item: any, index: number) => ({
+        const validated: RadarLead[] = json.map((item: any, index: number) => ({
           id: item.id || `lead_${Date.now()}_${index}`,
           nome: item.nome || item.name || "Sem nome",
           segmento: item.segmento || item.segment || "Não informado",
@@ -127,22 +130,60 @@ export default function Admin() {
           google_maps_url: item.google_maps_url || "",
           coletado_em: item.coletado_em || new Date().toISOString().split('T')[0],
           observacao: item.observacao || "",
-          grupo_importacao: groupName,
+          grupo_importacao: defaultGroupName,
           status_prospeccao: 'Pendente'
         }));
 
-        setIsLoading(true);
-        const updatedLeads = await leadService.saveLeads(validatedLeads);
-        setLeads(updatedLeads);
-        setSelectedGroup(groupName); // Seleciona automaticamente o novo lote importado
-        showSuccess(`${validatedLeads.length} leads importados no lote "${groupName}"!`);
+        setTempLeads(validated);
+        setTempGroupName(defaultGroupName);
+        showSuccess(`${validated.length} leads carregados! Defina o nome e clique em "Salvar Lista" abaixo.`);
       } catch (err) {
         showError("Erro ao ler o arquivo JSON. Verifique a formatação.");
-      } finally {
-        setIsLoading(false);
       }
     };
     reader.readAsText(file);
+    // Reset input value so the same file can be uploaded again if needed
+    e.target.value = '';
+  };
+
+  // Save the previewed leads manually to the database
+  const handleSaveManual = async () => {
+    if (!tempLeads || tempLeads.length === 0) {
+      showError("Nenhum lead para salvar.");
+      return;
+    }
+
+    if (!tempGroupName.trim()) {
+      showError("Por favor, insira um nome para a lista.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Apply the customized group name to all leads in the batch
+      const leadsToSave = tempLeads.map(lead => ({
+        ...lead,
+        grupo_importacao: tempGroupName.trim()
+      }));
+
+      const updatedLeads = await leadService.saveLeads(leadsToSave);
+      setLeads(updatedLeads);
+      setSelectedGroup(tempGroupName.trim());
+      setTempLeads(null);
+      setTempGroupName('');
+      showSuccess(`Lista "${tempGroupName.trim()}" salva com sucesso no banco de dados!`);
+    } catch (err) {
+      showError("Erro ao salvar a lista no banco de dados.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Discard the current preview
+  const handleDiscardPreview = () => {
+    setTempLeads(null);
+    setTempGroupName('');
+    showSuccess("Importação descartada.");
   };
 
   // Clear all imported data
@@ -216,51 +257,6 @@ export default function Admin() {
   // Clean phone number for links
   const cleanPhoneNumber = (phone: string) => {
     return phone.replace(/\D/g, '');
-  };
-
-  // Export filtered leads to CSV
-  const handleExportCSV = () => {
-    if (filteredLeads.length === 0) {
-      showError("Nenhum lead disponível para exportar.");
-      return;
-    }
-
-    const headers = [
-      "ID", "Nome", "Segmento", "Segmento Pesquisado", "Telefone", 
-      "Endereco", "Website", "Tem Website", "Status do Site", 
-      "Avaliacao", "Origem", "Google Maps URL", "Coletado Em", "Observacao", "Lote", "Status Prospeccao"
-    ];
-
-    const rows = filteredLeads.map(lead => [
-      lead.id,
-      `"${lead.nome.replace(/"/g, '""')}"`,
-      `"${lead.segmento.replace(/"/g, '""')}"`,
-      `"${lead.segmento_pesquisado.replace(/"/g, '""')}"`,
-      `"${lead.telefone}"`,
-      `"${lead.endereco.replace(/"/g, '""')}"`,
-      `"${lead.website}"`,
-      lead.tem_website ? "Sim" : "Nao",
-      `"${lead.status_site}"`,
-      `"${lead.rating}"`,
-      `"${lead.origem}"`,
-      `"${lead.google_maps_url}"`,
-      `"${lead.coletado_em}"`,
-      `"${(lead.observacao || '').replace(/"/g, '""')}"`,
-      `"${lead.grupo_importacao}"`,
-      `"${lead.status_prospeccao}"`
-    ]);
-
-    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
-      + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
-    
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `radar_local_leads_filtrados_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showSuccess("CSV exportado com sucesso!");
   };
 
   // Get unique segments, groups, and statuses for filter dropdowns
@@ -443,7 +439,68 @@ export default function Admin() {
           </div>
         </div>
 
-        {/* SELETOR DE LISTAS POR DATA (SUPER DESTACADO NO TOPO) */}
+        {/* ÁREA DE PRÉ-VISUALIZAÇÃO MANUAL (SÓ APARECE QUANDO CARREGA UM ARQUIVO) */}
+        {tempLeads && (
+          <div className="relative group">
+            <div className="absolute -inset-px bg-gradient-to-r from-[#00c868] to-emerald-500 rounded-3xl opacity-40 blur-md animate-pulse" />
+            <div className="relative bg-zinc-950 border-2 border-[#00c868] p-6 sm:p-8 rounded-3xl space-y-6 shadow-2xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-4">
+                  <div className="p-3 bg-[#00c868]/10 border border-[#00c868]/30 rounded-2xl text-[#00c868]">
+                    <FileText className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                      Lista Carregada com Sucesso!
+                      <span className="text-xs font-mono bg-[#00c868]/10 text-[#00c868] border border-[#00c868]/20 px-2.5 py-0.5 rounded-full">
+                        {tempLeads.length} Leads Pendentes
+                      </span>
+                    </h3>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Revise ou altere o nome da lista abaixo e clique em <strong>Salvar Lista Manualmente</strong> para gravar no banco de dados.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleDiscardPreview}
+                    className="px-5 py-2.5 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white hover:bg-zinc-850 transition-all text-xs font-bold uppercase tracking-wider cursor-pointer"
+                  >
+                    Descartar
+                  </button>
+                  <button
+                    onClick={handleSaveManual}
+                    disabled={isLoading}
+                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#00c868] text-black hover:bg-[#00b05b] font-black text-xs uppercase tracking-wider transition-all shadow-[0_10px_20px_rgba(0,200,104,0.2)] disabled:opacity-50 cursor-pointer"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>{isLoading ? 'Salvando...' : 'Salvar Lista Manualmente'}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-t border-zinc-900 pt-4 flex flex-col sm:flex-row sm:items-center gap-4">
+                <div className="w-full sm:w-1/3 space-y-1.5">
+                  <label className="block text-zinc-400 text-[10px] uppercase tracking-wider font-bold font-mono">Nome da Lista / Lote</label>
+                  <input
+                    type="text"
+                    value={tempGroupName}
+                    onChange={(e) => setTempGroupName(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#00c868] transition-all"
+                    placeholder="Ex: Leads - Recife Centro"
+                  />
+                </div>
+                <div className="flex-1 text-xs text-zinc-500 leading-relaxed">
+                  <AlertCircle className="w-4 h-4 text-[#00c868] inline mr-1.5 -mt-0.5" />
+                  Ao salvar, todos os {tempLeads.length} leads serão vinculados ao lote <strong>"{tempGroupName}"</strong> e estarão disponíveis para filtragem e prospecção.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SELETOR DE LISTAS POR DATA */}
         {uniqueGroups.length > 0 && (
           <div className="relative group">
             <div className="absolute -inset-px bg-gradient-to-r from-[#00c868]/20 to-zinc-800 rounded-2xl opacity-30 blur-sm" />
@@ -524,7 +581,7 @@ export default function Admin() {
             <div className="space-y-2">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <Upload className="w-4 h-4 text-[#00c868]" />
-                Importar Arquivo JSON
+                Carregar Arquivo JSON
               </h3>
               <p className="text-xs text-zinc-500 leading-relaxed">
                 Selecione o arquivo <code className="text-zinc-300 font-mono bg-zinc-900 px-1 py-0.5 rounded">.json</code> gerado pelo script Python do RadarLocal para carregar os leads.
