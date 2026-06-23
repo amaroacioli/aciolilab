@@ -957,8 +957,8 @@ export default function Admin() {
                               : 'hover:bg-zinc-900/10 opacity-75'
                           }`}
                         >
-                          {/* Nome */}
-                          <td className="p-4 font-bold text-white max-w-[180px] truncate" title={lead.nome}>
+                          {/* Nome Completo (Sem truncamento) */}
+                          <td className="p-4 font-bold text-white whitespace-normal" title={lead.nome}>
                             {lead.nome}
                           </td>
 
