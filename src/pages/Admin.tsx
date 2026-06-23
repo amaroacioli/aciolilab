@@ -5,7 +5,8 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Upload, FileText, Search, Filter, Trash2, Copy, ExternalLink, 
   Lock, User, LogOut, ArrowLeft, Globe, Phone, MapPin, Star, 
-  FileSpreadsheet, AlertCircle, MessageSquare, CheckCircle, Clock, XCircle, HelpCircle
+  FileSpreadsheet, AlertCircle, MessageSquare, CheckCircle, Clock, XCircle, HelpCircle,
+  RefreshCw
 } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
 import { leadService, RadarLead, isSupabaseConfigured } from '@/lib/supabase';
