@@ -6,7 +6,7 @@ import {
   Upload, FileText, Search, Filter, Trash2, Copy, ExternalLink, 
   Lock, User, LogOut, ArrowLeft, Globe, Phone, MapPin, Star, 
   FileSpreadsheet, AlertCircle, MessageSquare, CheckCircle, Clock, XCircle, HelpCircle,
-  RefreshCw, Calendar
+  RefreshCw, Calendar, Pencil, Check, X
 } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
 import { leadService, RadarLead, isSupabaseConfigured } from '@/lib/supabase';
@@ -31,6 +31,10 @@ export default function Admin() {
   const [selectedStatus, setSelectedStatus] = useState('todos');
   const [websiteFilter, setWebsiteFilter] = useState<'todos' | 'sem_site' | 'com_site'>('todos');
   const [phoneFilter, setPhoneFilter] = useState<'todos' | 'com_telefone' | 'sem_telefone'>('todos');
+
+  // Rename States
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
 
   // Check authentication on mount
   useEffect(() => {
@@ -166,6 +170,40 @@ export default function Admin() {
       }
     } catch (err) {
       showError("Erro ao atualizar o lead.");
+    }
+  };
+
+  // Handle Rename Group
+  const handleRenameGroup = async () => {
+    if (!newGroupName.trim()) {
+      showError("O nome da lista não pode ser vazio.");
+      return;
+    }
+
+    if (newGroupName === selectedGroup) {
+      setIsRenaming(false);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const success = await leadService.renameGroup(selectedGroup, newGroupName.trim());
+      if (success) {
+        setLeads(prev => prev.map(lead => 
+          lead.grupo_importacao === selectedGroup 
+            ? { ...lead, grupo_importacao: newGroupName.trim() } 
+            : lead
+        ));
+        setSelectedGroup(newGroupName.trim());
+        setIsRenaming(false);
+        showSuccess("Lista renomeada com sucesso!");
+      } else {
+        showError("Não foi possível renomear a lista.");
+      }
+    } catch (err) {
+      showError("Erro ao renomear a lista.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -420,17 +458,59 @@ export default function Admin() {
                 </div>
               </div>
               
-              <div className="w-full sm:w-72">
-                <select
-                  value={selectedGroup}
-                  onChange={(e) => setSelectedGroup(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white font-bold focus:outline-none focus:border-[#00c868] focus:ring-1 focus:ring-[#00c868]/20 transition-all cursor-pointer"
-                >
-                  <option value="todos" className="bg-zinc-950 text-white">Mostrar Todas as Listas</option>
-                  {uniqueGroups.map((group, idx) => (
-                    <option key={idx} value={group} className="bg-zinc-950 text-white">{group}</option>
-                  ))}
-                </select>
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                {isRenaming ? (
+                  <div className="flex items-center gap-2 w-full sm:w-80">
+                    <input
+                      type="text"
+                      value={newGroupName}
+                      onChange={(e) => setNewGroupName(e.target.value)}
+                      className="flex-1 bg-zinc-900 border border-[#00c868] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none"
+                      placeholder="Novo nome da lista..."
+                      autoFocus
+                    />
+                    <button
+                      onClick={handleRenameGroup}
+                      className="p-2.5 rounded-xl bg-[#00c868] text-black hover:bg-[#00b05b] transition-all"
+                      title="Salvar"
+                    >
+                      <Check className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setIsRenaming(false)}
+                      className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
+                      title="Cancelar"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <select
+                      value={selectedGroup}
+                      onChange={(e) => setSelectedGroup(e.target.value)}
+                      className="w-full sm:w-72 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white font-bold focus:outline-none focus:border-[#00c868] focus:ring-1 focus:ring-[#00c868]/20 transition-all cursor-pointer"
+                    >
+                      <option value="todos" className="bg-zinc-950 text-white">Mostrar Todas as Listas</option>
+                      {uniqueGroups.map((group, idx) => (
+                        <option key={idx} value={group} className="bg-zinc-950 text-white">{group}</option>
+                      ))}
+                    </select>
+
+                    {selectedGroup !== 'todos' && (
+                      <button
+                        onClick={() => {
+                          setNewGroupName(selectedGroup);
+                          setIsRenaming(true);
+                        }}
+                        className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-[#00c868]/40 transition-all"
+                        title="Renomear esta lista"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>

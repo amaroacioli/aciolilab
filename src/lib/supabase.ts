@@ -112,6 +112,27 @@ export const leadService = {
     return true;
   },
 
+  async renameGroup(oldName: string, newName: string): Promise<boolean> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabaseFetch(`radar_leads?grupo_importacao=eq.${encodeURIComponent(oldName)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ grupo_importacao: newName })
+        });
+        return true;
+      } catch (e) {
+        console.warn('Erro ao renomear grupo no Supabase, atualizando no LocalStorage:', e);
+      }
+    }
+
+    const current = await this.getLeads();
+    const updated = current.map(lead => 
+      lead.grupo_importacao === oldName ? { ...lead, grupo_importacao: newName } : lead
+    );
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+    return true;
+  },
+
   async deleteLead(id: string): Promise<boolean> {
     if (isSupabaseConfigured) {
       try {
