@@ -115,25 +115,43 @@ export default function Admin() {
 
         const defaultGroupName = getFormattedGroupName();
 
-        // Validate and normalize structure
-        const validated: RadarLead[] = json.map((item: any, index: number) => ({
-          id: item.id || `lead_${Date.now()}_${index}`,
-          nome: item.nome || item.name || "Sem nome",
-          segmento: item.segmento || item.segment || "Não informado",
-          segmento_pesquisado: item.segmento_pesquisado || "Geral",
-          telefone: item.telefone || item.phone || "Não informado",
-          endereco: item.endereco || item.address || "Não informado",
-          website: item.website || "",
-          tem_website: item.tem_website !== undefined ? item.tem_website : !!item.website,
-          status_site: item.status_site || (item.website ? "Com site" : "Sem site"),
-          rating: item.rating || "Não avaliado",
-          origem: item.origem || "Google Maps",
-          google_maps_url: item.google_maps_url || "",
-          coletado_em: item.coletado_em || new Date().toISOString().split('T')[0],
-          observacao: item.observacao || "",
-          grupo_importacao: defaultGroupName,
-          status_prospeccao: 'Pendente'
-        }));
+        // Validate and normalize structure (Importing 100% of leads, with or without website)
+        const validated: RadarLead[] = json.map((item: any, index: number) => {
+          // Robust website detection
+          const websiteUrl = (item.website || item.site || "").trim();
+          const hasWebsiteField = item.tem_website !== undefined ? item.tem_website : (item.tem_site !== undefined ? item.tem_site : null);
+          
+          let tem_website = false;
+          if (hasWebsiteField !== null) {
+            if (typeof hasWebsiteField === 'boolean') {
+              tem_website = hasWebsiteField;
+            } else if (typeof hasWebsiteField === 'string') {
+              const lower = hasWebsiteField.toLowerCase().trim();
+              tem_website = lower === 'true' || lower === 'sim' || lower === 'yes' || lower === '1';
+            }
+          } else {
+            tem_website = !!(websiteUrl && websiteUrl !== 'Não informado' && websiteUrl !== 'None' && websiteUrl !== 'null');
+          }
+
+          return {
+            id: item.id || `lead_${Date.now()}_${index}`,
+            nome: item.nome || item.name || "Sem nome",
+            segmento: item.segmento || item.segment || "Não informado",
+            segmento_pesquisado: item.segmento_pesquisado || "Geral",
+            telefone: item.telefone || item.phone || "Não informado",
+            endereco: item.endereco || item.address || "Não informado",
+            website: websiteUrl === 'None' || websiteUrl === 'Não informado' || websiteUrl === 'null' ? "" : websiteUrl,
+            tem_website: tem_website,
+            status_site: item.status_site || (tem_website ? "Com site" : "Sem site"),
+            rating: item.rating || "Não avaliado",
+            origem: item.origem || "Google Maps",
+            google_maps_url: item.google_maps_url || "",
+            coletado_em: item.coletado_em || new Date().toISOString().split('T')[0],
+            observacao: item.observacao || "",
+            grupo_importacao: defaultGroupName,
+            status_prospeccao: 'Pendente'
+          };
+        });
 
         setTempLeads(validated);
         setTempGroupName(defaultGroupName);
