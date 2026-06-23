@@ -6,7 +6,7 @@ import {
   Upload, FileText, Search, Filter, Trash2, Copy, ExternalLink, 
   Lock, User, LogOut, ArrowLeft, Globe, Phone, MapPin, Star, 
   AlertCircle, MessageSquare, Calendar, Pencil, Check, X, Save,
-  RefreshCw
+  RefreshCw, CheckCircle2
 } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
 import { leadService, RadarLead, isSupabaseConfigured } from '@/lib/supabase';
@@ -215,6 +215,27 @@ export default function Admin() {
         showSuccess("Todos os dados foram limpos.");
       } catch (err) {
         showError("Erro ao limpar os dados.");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  // Delete a specific group/list of leads
+  const handleDeleteGroup = async (groupName: string) => {
+    if (window.confirm(`Tem certeza que deseja deletar a lista "${groupName}" e todos os seus leads?`)) {
+      setIsLoading(true);
+      try {
+        const success = await leadService.deleteGroup(groupName);
+        if (success) {
+          setLeads(prev => prev.filter(lead => lead.grupo_importacao !== groupName));
+          setSelectedGroup('todos');
+          showSuccess(`Lista "${groupName}" deletada com sucesso.`);
+        } else {
+          showError("Não foi possível deletar a lista.");
+        }
+      } catch (err) {
+        showError("Erro ao deletar a lista.");
       } finally {
         setIsLoading(false);
       }
@@ -519,7 +540,7 @@ export default function Admin() {
           </div>
         )}
 
-        {/* SELETOR DE LISTAS POR DATA */}
+        {/* SELETOR DE LISTAS POR DATA COM BOTÃO DE DELETAR */}
         {uniqueGroups.length > 0 && (
           <div className="relative group">
             <div className="absolute -inset-px bg-gradient-to-r from-[#00c868]/20 to-zinc-800 rounded-2xl opacity-30 blur-sm" />
@@ -561,11 +582,11 @@ export default function Admin() {
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                     <select
                       value={selectedGroup}
                       onChange={(e) => setSelectedGroup(e.target.value)}
-                      className="w-full sm:w-72 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white font-bold focus:outline-none focus:border-[#00c868] focus:ring-1 focus:ring-[#00c868]/20 transition-all cursor-pointer"
+                      className="flex-1 sm:flex-none sm:w-72 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white font-bold focus:outline-none focus:border-[#00c868] focus:ring-1 focus:ring-[#00c868]/20 transition-all cursor-pointer"
                     >
                       <option value="todos" className="bg-zinc-950 text-white">Mostrar Todas as Listas</option>
                       {uniqueGroups.map((group, idx) => (
@@ -574,16 +595,25 @@ export default function Admin() {
                     </select>
 
                     {selectedGroup !== 'todos' && (
-                      <button
-                        onClick={() => {
-                          setNewGroupName(selectedGroup);
-                          setIsRenaming(true);
-                        }}
-                        className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-[#00c868]/40 transition-all"
-                        title="Renomear esta lista"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
+                      <>
+                        <button
+                          onClick={() => {
+                            setNewGroupName(selectedGroup);
+                            setIsRenaming(true);
+                          }}
+                          className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-[#00c868]/40 transition-all"
+                          title="Renomear esta lista"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteGroup(selectedGroup)}
+                          className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white transition-all"
+                          title="Deletar esta lista inteira"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
                     )}
                   </div>
                 )}
@@ -756,200 +786,344 @@ export default function Admin() {
 
         {/* Leads Table / Empty State */}
         {leads.length > 0 ? (
-          <div className="bg-zinc-950/40 border border-zinc-900 rounded-3xl overflow-hidden shadow-2xl">
-            <div className="p-6 border-b border-zinc-900 flex items-center justify-between">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-[#00c868] animate-pulse" />
-                Leads Filtrados ({filteredLeads.length})
-              </h3>
-            </div>
+          <div className="space-y-6">
+            
+            {/* MOBILE VIEW: Touch-friendly Cards */}
+            <div className="block md:hidden space-y-4">
+              <div className="flex items-center justify-between px-2">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[#00c868] animate-pulse" />
+                  Leads Filtrados ({filteredLeads.length})
+                </h3>
+              </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-zinc-900 bg-zinc-900/20 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-                    <th className="p-4 font-bold">Nome</th>
-                    <th className="p-4 font-bold">Status Prospecção</th>
-                    <th className="p-4 font-bold">Segmento</th>
-                    <th className="p-4 font-bold">Telefone</th>
-                    <th className="p-4 font-bold">Endereço</th>
-                    <th className="p-4 font-bold">Website</th>
-                    <th className="p-4 font-bold">Status do Site</th>
-                    <th className="p-4 font-bold">Avaliação</th>
-                    <th className="p-4 font-bold">Lote / Coleta</th>
-                    <th className="p-4 font-bold">Observações</th>
-                    <th className="p-4 font-bold text-right">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-900 text-xs">
-                  {filteredLeads.length > 0 ? (
-                    filteredLeads.map((lead) => (
-                      <tr key={lead.id} className="hover:bg-zinc-900/10 transition-colors">
-                        {/* Nome */}
-                        <td className="p-4 font-bold text-white max-w-[180px] truncate" title={lead.nome}>
-                          {lead.nome}
-                        </td>
-
-                        {/* Status Prospecção */}
-                        <td className="p-4">
-                          <select
-                            value={lead.status_prospeccao || 'Pendente'}
-                            onChange={(e) => handleUpdateLead(lead.id, { status_prospeccao: e.target.value as any })}
-                            className={`px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider focus:outline-none cursor-pointer transition-all ${getStatusBadgeClass(lead.status_prospeccao || 'Pendente')}`}
-                          >
-                            <option value="Pendente" className="bg-zinc-950 text-zinc-400">Pendente</option>
-                            <option value="Contatado" className="bg-zinc-950 text-blue-400">Contatado</option>
-                            <option value="Aguardando Resposta" className="bg-zinc-950 text-amber-400">Aguardando Resposta</option>
-                            <option value="Fechado" className="bg-zinc-950 text-[#00c868]">Fechado</option>
-                            <option value="Sem Interesse" className="bg-zinc-950 text-red-400">Sem Interesse</option>
-                          </select>
-                        </td>
-                        
-                        {/* Segmento */}
-                        <td className="p-4">
-                          <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400 uppercase tracking-wider">
+              {filteredLeads.length > 0 ? (
+                filteredLeads.map((lead) => (
+                  <div 
+                    key={lead.id} 
+                    className={`p-5 rounded-2xl border bg-zinc-950/90 space-y-4 transition-all ${
+                      lead.status_prospeccao === 'Pendente' 
+                        ? 'border-zinc-800/80 shadow-[0_4px_20px_rgba(255,255,255,0.01)]' 
+                        : 'border-zinc-900 opacity-75'
+                    }`}
+                  >
+                    {/* Header do Card */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-bold text-white leading-tight">{lead.nome}</h4>
+                        <div className="flex flex-wrap gap-1.5 items-center">
+                          <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
                             {lead.segmento}
                           </span>
-                        </td>
-
-                        {/* Telefone */}
-                        <td className="p-4 font-mono text-zinc-300 whitespace-nowrap">
-                          {lead.telefone}
-                        </td>
-
-                        {/* Endereço */}
-                        <td className="p-4 text-zinc-400 max-w-[200px] truncate" title={lead.endereco}>
-                          {lead.endereco}
-                        </td>
-
-                        {/* Website */}
-                        <td className="p-4 max-w-[150px] truncate">
-                          {lead.website ? (
-                            <a 
-                              href={lead.website} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
-                              className="text-blue-400 hover:underline flex items-center gap-1"
-                            >
-                              <Globe className="w-3 h-3 shrink-0" />
-                              <span>Link</span>
-                            </a>
-                          ) : (
-                            <span className="text-zinc-600 italic">Nenhum</span>
-                          )}
-                        </td>
-
-                        {/* Status do Site */}
-                        <td className="p-4">
-                          {lead.tem_website ? (
-                            <span className="px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[9px] font-bold uppercase tracking-wider">
-                              {lead.status_site}
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-[9px] font-bold uppercase tracking-wider">
-                              {lead.status_site}
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Avaliação */}
-                        <td className="p-4 whitespace-nowrap">
-                          <div className="flex items-center gap-1 text-amber-400">
+                          <div className="flex items-center gap-1 text-amber-400 text-[10px]">
                             <Star className="w-3 h-3 fill-current" />
-                            <span className="font-mono text-[11px]">{lead.rating}</span>
+                            <span>{lead.rating}</span>
                           </div>
-                        </td>
+                        </div>
+                      </div>
 
-                        {/* Lote / Data da Coleta */}
-                        <td className="p-4 text-zinc-500 whitespace-nowrap font-mono text-[10px]">
-                          <div className="font-bold text-zinc-400">{lead.grupo_importacao}</div>
-                          <div className="text-[9px] text-zinc-600">{lead.coletado_em}</div>
-                        </td>
+                      {/* Status Selector */}
+                      <select
+                        value={lead.status_prospeccao || 'Pendente'}
+                        onChange={(e) => handleUpdateLead(lead.id, { status_prospeccao: e.target.value as any })}
+                        className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold uppercase tracking-wider focus:outline-none cursor-pointer transition-all ${getStatusBadgeClass(lead.status_prospeccao || 'Pendente')}`}
+                      >
+                        <option value="Pendente" className="bg-zinc-950 text-zinc-400">Pendente</option>
+                        <option value="Contatado" className="bg-zinc-950 text-blue-400">Contatado</option>
+                        <option value="Aguardando Resposta" className="bg-zinc-950 text-amber-400">Aguardando Resposta</option>
+                        <option value="Fechado" className="bg-zinc-950 text-[#00c868]">Fechado</option>
+                        <option value="Sem Interesse" className="bg-zinc-950 text-red-400">Sem Interesse</option>
+                      </select>
+                    </div>
 
-                        {/* Observações */}
-                        <td className="p-4 min-w-[180px]">
-                          <input
-                            type="text"
-                            placeholder="Adicionar observação..."
-                            value={lead.observacao || ''}
-                            onChange={(e) => handleUpdateLead(lead.id, { observacao: e.target.value })}
-                            className="w-full bg-zinc-900/40 border border-zinc-800 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-[#00c868] transition-all"
-                          />
-                        </td>
+                    {/* Detalhes de Contato */}
+                    <div className="space-y-2 text-xs text-zinc-400 border-t border-zinc-900 pt-3">
+                      {lead.telefone && lead.telefone !== 'Não informado' && (
+                        <div className="flex items-center justify-between bg-zinc-900/30 p-2 rounded-xl border border-zinc-900">
+                          <span className="font-mono text-zinc-300">{lead.telefone}</span>
+                          <button 
+                            onClick={() => copyText(lead.telefone, "Telefone copiado!")}
+                            className="text-[10px] text-[#00c868] font-bold uppercase tracking-wider px-2 py-1 hover:bg-[#00c868]/10 rounded-lg transition-all"
+                          >
+                            Copiar
+                          </button>
+                        </div>
+                      )}
 
-                        {/* Ações */}
-                        <td className="p-4 text-right whitespace-nowrap">
-                          <div className="flex items-center justify-end gap-1.5">
-                            {/* WhatsApp Action */}
-                            {lead.telefone && lead.telefone !== 'Não informado' && (
-                              <a
-                                href={`https://api.whatsapp.com/send?phone=55${cleanPhoneNumber(lead.telefone)}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title="Chamar no WhatsApp"
-                                className="p-1.5 rounded bg-[#00c868]/10 border border-[#00c868]/20 text-[#00c868] hover:bg-[#00c868] hover:text-black transition-all inline-block"
+                      {lead.endereco && lead.endereco !== 'Não informado' && (
+                        <div className="flex items-start gap-2 text-[11px] leading-relaxed">
+                          <MapPin className="w-3.5 h-3.5 text-zinc-600 shrink-0 mt-0.5" />
+                          <span className="truncate flex-1" title={lead.endereco}>{lead.endereco}</span>
+                        </div>
+                      )}
+
+                      {lead.website && (
+                        <div className="flex items-center gap-2 text-[11px]">
+                          <Globe className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+                          <a 
+                            href={lead.website} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="text-blue-400 hover:underline truncate flex-1"
+                          >
+                            {lead.website}
+                          </a>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Observações */}
+                    <div className="space-y-1.5">
+                      <label className="block text-[9px] uppercase tracking-wider font-bold font-mono text-zinc-500">Observações</label>
+                      <input
+                        type="text"
+                        placeholder="Adicionar anotação..."
+                        value={lead.observacao || ''}
+                        onChange={(e) => handleUpdateLead(lead.id, { observacao: e.target.value })}
+                        className="w-full bg-zinc-900/40 border border-zinc-900 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#00c868] transition-all"
+                      />
+                    </div>
+
+                    {/* Botões de Ação Grandes para Mobile */}
+                    <div className="grid grid-cols-2 gap-2 pt-2">
+                      {lead.telefone && lead.telefone !== 'Não informado' ? (
+                        <>
+                          <a
+                            href={`https://api.whatsapp.com/send?phone=55${cleanPhoneNumber(lead.telefone)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-2 py-3 rounded-xl bg-[#00c868]/10 border border-[#00c868]/20 text-[#00c868] font-bold text-xs uppercase tracking-wider active:scale-95 transition-all"
+                          >
+                            <MessageSquare className="w-4 h-4" />
+                            <span>WhatsApp</span>
+                          </a>
+                          <a
+                            href={`tel:${cleanPhoneNumber(lead.telefone)}`}
+                            className="flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 font-bold text-xs uppercase tracking-wider active:scale-95 transition-all"
+                          >
+                            <Phone className="w-4 h-4" />
+                            <span>Ligar</span>
+                          </a>
+                        </>
+                      ) : (
+                        <div className="col-span-2 text-center py-2 text-[10px] text-zinc-600 italic">
+                          Nenhum telefone disponível para contato rápido.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-12 text-zinc-500 italic text-xs">
+                  Nenhum lead corresponde aos filtros selecionados.
+                </div>
+              )}
+            </div>
+
+            {/* DESKTOP VIEW: Premium Sticky Table */}
+            <div className="hidden md:block bg-zinc-950/40 border border-zinc-900 rounded-3xl overflow-hidden shadow-2xl">
+              <div className="p-6 border-b border-zinc-900 flex items-center justify-between">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[#00c868] animate-pulse" />
+                  Leads Filtrados ({filteredLeads.length})
+                </h3>
+              </div>
+
+              <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead className="sticky top-0 bg-zinc-950 z-10">
+                    <tr className="border-b border-zinc-900 bg-zinc-900/40 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                      <th className="p-4 font-bold">Nome</th>
+                      <th className="p-4 font-bold">Status Prospecção</th>
+                      <th className="p-4 font-bold">Segmento</th>
+                      <th className="p-4 font-bold">Telefone</th>
+                      <th className="p-4 font-bold">Endereço</th>
+                      <th className="p-4 font-bold">Website</th>
+                      <th className="p-4 font-bold">Status do Site</th>
+                      <th className="p-4 font-bold">Avaliação</th>
+                      <th className="p-4 font-bold">Lote / Coleta</th>
+                      <th className="p-4 font-bold">Observações</th>
+                      <th className="p-4 font-bold text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-900 text-xs">
+                    {filteredLeads.length > 0 ? (
+                      filteredLeads.map((lead) => (
+                        <tr 
+                          key={lead.id} 
+                          className={`transition-colors ${
+                            lead.status_prospeccao === 'Pendente' 
+                              ? 'bg-zinc-950/20 hover:bg-zinc-900/20' 
+                              : 'hover:bg-zinc-900/10 opacity-75'
+                          }`}
+                        >
+                          {/* Nome */}
+                          <td className="p-4 font-bold text-white max-w-[180px] truncate" title={lead.nome}>
+                            {lead.nome}
+                          </td>
+
+                          {/* Status Prospecção */}
+                          <td className="p-4">
+                            <select
+                              value={lead.status_prospeccao || 'Pendente'}
+                              onChange={(e) => handleUpdateLead(lead.id, { status_prospeccao: e.target.value as any })}
+                              className={`px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider focus:outline-none cursor-pointer transition-all ${getStatusBadgeClass(lead.status_prospeccao || 'Pendente')}`}
+                            >
+                              <option value="Pendente" className="bg-zinc-950 text-zinc-400">Pendente</option>
+                              <option value="Contatado" className="bg-zinc-950 text-blue-400">Contatado</option>
+                              <option value="Aguardando Resposta" className="bg-zinc-950 text-amber-400">Aguardando Resposta</option>
+                              <option value="Fechado" className="bg-zinc-950 text-[#00c868]">Fechado</option>
+                              <option value="Sem Interesse" className="bg-zinc-950 text-red-400">Sem Interesse</option>
+                            </select>
+                          </td>
+                          
+                          {/* Segmento */}
+                          <td className="p-4">
+                            <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400 uppercase tracking-wider">
+                              {lead.segmento}
+                            </span>
+                          </td>
+
+                          {/* Telefone */}
+                          <td className="p-4 font-mono text-zinc-300 whitespace-nowrap">
+                            {lead.telefone}
+                          </td>
+
+                          {/* Endereço */}
+                          <td className="p-4 text-zinc-400 max-w-[200px] truncate" title={lead.endereco}>
+                            {lead.endereco}
+                          </td>
+
+                          {/* Website */}
+                          <td className="p-4 max-w-[150px] truncate">
+                            {lead.website ? (
+                              <a 
+                                href={lead.website} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="text-blue-400 hover:underline flex items-center gap-1"
                               >
-                                <MessageSquare className="w-3.5 h-3.5" />
+                                <Globe className="w-3 h-3 shrink-0" />
+                                <span>Link</span>
                               </a>
+                            ) : (
+                              <span className="text-zinc-600 italic">Nenhum</span>
                             )}
+                          </td>
 
-                            {/* Call Action */}
-                            {lead.telefone && lead.telefone !== 'Não informado' && (
-                              <a
-                                href={`tel:${cleanPhoneNumber(lead.telefone)}`}
-                                title="Ligar diretamente"
-                                className="p-1.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white transition-all inline-block"
-                              >
-                                <Phone className="w-3.5 h-3.5" />
-                              </a>
+                          {/* Status do Site */}
+                          <td className="p-4">
+                            {lead.tem_website ? (
+                              <span className="px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[9px] font-bold uppercase tracking-wider">
+                                {lead.status_site}
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-[9px] font-bold uppercase tracking-wider">
+                                {lead.status_site}
+                              </span>
                             )}
+                          </td>
 
-                            {/* Copy Phone */}
-                            {lead.telefone && lead.telefone !== 'Não informado' && (
+                          {/* Avaliação */}
+                          <td className="p-4 whitespace-nowrap">
+                            <div className="flex items-center gap-1 text-amber-400">
+                              <Star className="w-3 h-3 fill-current" />
+                              <span className="font-mono text-[11px]">{lead.rating}</span>
+                            </div>
+                          </td>
+
+                          {/* Lote / Data da Coleta */}
+                          <td className="p-4 text-zinc-500 whitespace-nowrap font-mono text-[10px]">
+                            <div className="font-bold text-zinc-400">{lead.grupo_importacao}</div>
+                            <div className="text-[9px] text-zinc-600">{lead.coletado_em}</div>
+                          </td>
+
+                          {/* Observações */}
+                          <td className="p-4 min-w-[180px]">
+                            <input
+                              type="text"
+                              placeholder="Adicionar observação..."
+                              value={lead.observacao || ''}
+                              onChange={(e) => handleUpdateLead(lead.id, { observacao: e.target.value })}
+                              className="w-full bg-zinc-900/40 border border-zinc-800 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-[#00c868] transition-all"
+                            />
+                          </td>
+
+                          {/* Ações */}
+                          <td className="p-4 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {/* WhatsApp Action */}
+                              {lead.telefone && lead.telefone !== 'Não informado' && (
+                                <a
+                                  href={`https://api.whatsapp.com/send?phone=55${cleanPhoneNumber(lead.telefone)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="Chamar no WhatsApp"
+                                  className="p-1.5 rounded bg-[#00c868]/10 border border-[#00c868]/20 text-[#00c868] hover:bg-[#00c868] hover:text-black transition-all inline-block"
+                                >
+                                  <MessageSquare className="w-3.5 h-3.5" />
+                                </a>
+                              )}
+
+                              {/* Call Action */}
+                              {lead.telefone && lead.telefone !== 'Não informado' && (
+                                <a
+                                  href={`tel:${cleanPhoneNumber(lead.telefone)}`}
+                                  title="Ligar diretamente"
+                                  className="p-1.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white transition-all inline-block"
+                                >
+                                  <Phone className="w-3.5 h-3.5" />
+                                </a>
+                              )}
+
+                              {/* Copy Phone */}
+                              {lead.telefone && lead.telefone !== 'Não informado' && (
+                                <button
+                                  onClick={() => copyText(lead.telefone, "Telefone copiado!")}
+                                  title="Copiar Telefone"
+                                  className="p-1.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-colors"
+                                >
+                                  <Copy className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+
+                              {/* Copy Address */}
                               <button
-                                onClick={() => copyText(lead.telefone, "Telefone copiado!")}
-                                title="Copiar Telefone"
+                                onClick={() => copyText(lead.endereco, "Endereço copiado!")}
+                                title="Copiar Endereço"
                                 className="p-1.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-colors"
                               >
-                                <Copy className="w-3.5 h-3.5" />
+                                <MapPin className="w-3.5 h-3.5" />
                               </button>
-                            )}
 
-                            {/* Copy Address */}
-                            <button
-                              onClick={() => copyText(lead.endereco, "Endereço copiado!")}
-                              title="Copiar Endereço"
-                              className="p-1.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-colors"
-                            >
-                              <MapPin className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* Open Google Maps */}
-                            {lead.google_maps_url && (
-                              <a
-                                href={lead.google_maps_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title="Abrir no Google Maps"
-                                className="p-1.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-[#00c868] transition-colors inline-block"
-                              >
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              </a>
-                            )}
-                          </div>
+                              {/* Open Google Maps */}
+                              {lead.google_maps_url && (
+                                <a
+                                  href={lead.google_maps_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="Abrir no Google Maps"
+                                  className="p-1.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-[#00c868] transition-colors inline-block"
+                                  >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </a>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={11} className="p-8 text-center text-zinc-500 italic">
+                          Nenhum lead corresponde aos filtros selecionados.
                         </td>
                       </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={11} className="p-8 text-center text-zinc-500 italic">
-                        Nenhum lead corresponde aos filtros selecionados.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
+
           </div>
         ) : (
           /* Empty State */

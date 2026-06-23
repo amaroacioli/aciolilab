@@ -2,7 +2,7 @@
 
 // Configurações do Supabase vindas das variáveis de ambiente (suporta Vite e Next)
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || import.meta.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
 
@@ -147,6 +147,24 @@ export const leadService = {
 
     const current = await this.getLeads();
     const updated = current.filter(lead => lead.id !== id);
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+    return true;
+  },
+
+  async deleteGroup(groupName: string): Promise<boolean> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabaseFetch(`radar_leads?grupo_importacao=eq.${encodeURIComponent(groupName)}`, {
+          method: 'DELETE'
+        });
+        return true;
+      } catch (e) {
+        console.warn('Erro ao deletar grupo no Supabase, deletando no LocalStorage:', e);
+      }
+    }
+
+    const current = await this.getLeads();
+    const updated = current.filter(lead => lead.grupo_importacao !== groupName);
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
     return true;
   },
