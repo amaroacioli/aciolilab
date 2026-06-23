@@ -6,7 +6,7 @@ import {
   Upload, FileText, Search, Filter, Trash2, Copy, ExternalLink, 
   Lock, User, LogOut, ArrowLeft, Globe, Phone, MapPin, Star, 
   FileSpreadsheet, AlertCircle, MessageSquare, CheckCircle, Clock, XCircle, HelpCircle,
-  RefreshCw
+  RefreshCw, Calendar
 } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
 import { leadService, RadarLead, isSupabaseConfigured } from '@/lib/supabase';
@@ -130,6 +130,7 @@ export default function Admin() {
         setIsLoading(true);
         const updatedLeads = await leadService.saveLeads(validatedLeads);
         setLeads(updatedLeads);
+        setSelectedGroup(groupName); // Seleciona automaticamente o novo lote importado
         showSuccess(`${validatedLeads.length} leads importados no lote "${groupName}"!`);
       } catch (err) {
         showError("Erro ao ler o arquivo JSON. Verifique a formatação.");
@@ -404,6 +405,37 @@ export default function Admin() {
           </div>
         </div>
 
+        {/* SELETOR DE LISTAS POR DATA (SUPER DESTACADO NO TOPO) */}
+        {uniqueGroups.length > 0 && (
+          <div className="relative group">
+            <div className="absolute -inset-px bg-gradient-to-r from-[#00c868]/20 to-zinc-800 rounded-2xl opacity-30 blur-sm" />
+            <div className="relative bg-zinc-950/80 border border-zinc-850 p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-[#00c868]/10 border border-[#00c868]/20 rounded-xl text-[#00c868]">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Selecione a Lista de Leads</h3>
+                  <p className="text-xs text-zinc-500">Alterne entre as listas salvas por data e hora de importação</p>
+                </div>
+              </div>
+              
+              <div className="w-full sm:w-72">
+                <select
+                  value={selectedGroup}
+                  onChange={(e) => setSelectedGroup(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white font-bold focus:outline-none focus:border-[#00c868] focus:ring-1 focus:ring-[#00c868]/20 transition-all cursor-pointer"
+                >
+                  <option value="todos" className="bg-zinc-950 text-white">Mostrar Todas as Listas</option>
+                  {uniqueGroups.map((group, idx) => (
+                    <option key={idx} value={group} className="bg-zinc-950 text-white">{group}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Import Section & Dashboard Stats */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
@@ -496,7 +528,7 @@ export default function Admin() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4">
               {/* Search Input */}
-              <div className="lg:col-span-3 relative">
+              <div className="lg:col-span-4 relative">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
                   type="text"
@@ -507,22 +539,8 @@ export default function Admin() {
                 />
               </div>
 
-              {/* Group Filter */}
-              <div className="lg:col-span-2">
-                <select
-                  value={selectedGroup}
-                  onChange={(e) => setSelectedGroup(e.target.value)}
-                  className="w-full bg-zinc-900/30 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[#00c868] transition-all cursor-pointer"
-                >
-                  <option value="todos" className="bg-zinc-950 text-white">Todos os Lotes</option>
-                  {uniqueGroups.map((group, idx) => (
-                    <option key={idx} value={group} className="bg-zinc-950 text-white">{group}</option>
-                  ))}
-                </select>
-              </div>
-
               {/* Segment Filter */}
-              <div className="lg:col-span-2">
+              <div className="lg:col-span-3">
                 <select
                   value={selectedSegment}
                   onChange={(e) => setSelectedSegment(e.target.value)}
@@ -575,17 +593,6 @@ export default function Admin() {
                   <option value="com_telefone" className="bg-zinc-950 text-white">Com Tel</option>
                   <option value="sem_telefone" className="bg-zinc-950 text-white">Sem Tel</option>
                 </select>
-              </div>
-
-              {/* Export Button */}
-              <div className="lg:col-span-1">
-                <button
-                  onClick={handleExportCSV}
-                  title="Exportar CSV dos leads filtrados"
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#00c868]/10 hover:bg-[#00c868] text-white hover:text-black border border-[#00c868]/20 hover:border-[#00c868] font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                </button>
               </div>
             </div>
           </div>
