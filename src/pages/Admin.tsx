@@ -294,7 +294,7 @@ export default function Admin() {
                 className="w-full flex items-center justify-center gap-2 py-4 rounded-xl bg-[#00c868]/10 hover:bg-[#00c868] text-white hover:text-black border border-[#00c868]/20 hover:border-[#00c868] font-black text-xs uppercase tracking-widest transition-all duration-300 cursor-pointer"
               >
                 <Lock className="w-4 h-4" />
-                <span>Acessar RadarLocal</span>
+                <span>Acessar</span>
               </button>
             </form>
 
