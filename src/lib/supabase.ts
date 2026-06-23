@@ -1,26 +1,33 @@
+"use client";
+
 // Configurações do Supabase vindas das variáveis de ambiente
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
 
-// Interface para os Leads de Prospecção
-export interface ProspectLead {
+// Interface para os Leads do RadarLocal
+export interface RadarLead {
   id: string;
-  name: string;
-  phone: string;
-  segment: string;
-  address: string;
-  cep: string;
-  has_website: boolean;
-  status: 'Pendente' | 'Contatado' | 'Sem Interesse' | 'Agendado';
-  notes?: string;
-  image_url?: string; // Campo opcional para a foto do estabelecimento
-  created_at: string;
+  nome: string;
+  segmento: string;
+  segmento_pesquisado: string;
+  telefone: string;
+  endereco: string;
+  website: string;
+  tem_website: boolean;
+  status_site: string;
+  rating: string;
+  origem: string;
+  google_maps_url: string;
+  coletado_em: string;
+  observacao?: string;
+  grupo_importacao: string; // Ex: "Leads - 24/06/2026 14:00"
+  status_prospeccao: 'Pendente' | 'Contatado' | 'Aguardando Resposta' | 'Fechado' | 'Sem Interesse';
+  created_at?: string;
 }
 
-// Banco de dados local temporário para simulação e fallback
-const LOCAL_STORAGE_KEY = 'acioli_admin_leads';
+const LOCAL_STORAGE_KEY = 'radar_local_leads';
 
 // Função auxiliar para fazer requisições HTTP seguras para a API REST do Supabase
 async function supabaseFetch(path: string, options: RequestInit = {}) {
@@ -51,12 +58,11 @@ async function supabaseFetch(path: string, options: RequestInit = {}) {
 }
 
 export const leadService = {
-  async getLeads(): Promise<ProspectLead[]> {
+  async getLeads(): Promise<RadarLead[]> {
     if (isSupabaseConfigured) {
       try {
-        // GET /prospects?order=created_at.desc
-        const data = await supabaseFetch('prospects?select=*&order=created_at.desc');
-        if (data) return data as ProspectLead[];
+        const data = await supabaseFetch('radar_leads?select=*&order=coletado_em.desc');
+        if (data) return data as RadarLead[];
       } catch (e) {
         console.warn('Erro ao buscar do Supabase, usando LocalStorage:', e);
       }
@@ -66,39 +72,31 @@ export const leadService = {
     return local ? JSON.parse(local) : [];
   },
 
-  async saveLead(lead: Omit<ProspectLead, 'id' | 'created_at'>): Promise<ProspectLead> {
-    const newLead: ProspectLead = {
-      ...lead,
-      id: Math.random().toString(36).substring(2, 15),
-      created_at: new Date().toISOString()
-    };
-
+  async saveLeads(newLeads: RadarLead[]): Promise<RadarLead[]> {
     if (isSupabaseConfigured) {
       try {
-        // POST /prospects
-        const data = await supabaseFetch('prospects', {
+        const data = await supabaseFetch('radar_leads', {
           method: 'POST',
-          body: JSON.stringify(newLead)
+          body: JSON.stringify(newLeads)
         });
-        if (data && data[0]) return data[0] as ProspectLead;
+        if (data) return data as RadarLead[];
       } catch (e) {
         console.warn('Erro ao salvar no Supabase, salvando no LocalStorage:', e);
       }
     }
 
     const current = await this.getLeads();
-    const updated = [newLead, ...current];
+    const updated = [...newLeads, ...current];
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
-    return newLead;
+    return updated;
   },
 
-  async updateLeadStatus(id: string, status: ProspectLead['status'], notes?: string): Promise<boolean> {
+  async updateLead(id: string, updates: Partial<RadarLead>): Promise<boolean> {
     if (isSupabaseConfigured) {
       try {
-        // PATCH /prospects?id=eq.id
-        await supabaseFetch(`prospects?id=eq.${id}`, {
+        await supabaseFetch(`radar_leads?id=eq.${id}`, {
           method: 'PATCH',
-          body: JSON.stringify({ status, notes })
+          body: JSON.stringify(updates)
         });
         return true;
       } catch (e) {
@@ -108,7 +106,7 @@ export const leadService = {
 
     const current = await this.getLeads();
     const updated = current.map(lead => 
-      lead.id === id ? { ...lead, status, notes: notes !== undefined ? notes : lead.notes } : lead
+      lead.id === id ? { ...lead, ...updates } : lead
     );
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
     return true;
@@ -117,8 +115,7 @@ export const leadService = {
   async deleteLead(id: string): Promise<boolean> {
     if (isSupabaseConfigured) {
       try {
-        // DELETE /prospects?id=eq.id
-        await supabaseFetch(`prospects?id=eq.${id}`, {
+        await supabaseFetch(`radar_leads?id=eq.${id}`, {
           method: 'DELETE'
         });
         return true;
@@ -130,6 +127,24 @@ export const leadService = {
     const current = await this.getLeads();
     const updated = current.filter(lead => lead.id !== id);
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+    return true;
+  },
+
+  async clearAll(): Promise<boolean> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabaseFetch('radar_leads', {
+          method: 'DELETE',
+          headers: {
+            'Prefer': 'count=exact'
+          }
+        });
+        return true;
+      } catch (e) {
+        console.warn('Erro ao limpar Supabase:', e);
+      }
+    }
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
     return true;
   }
 };

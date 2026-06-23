@@ -1,32 +1,14 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Upload, FileText, Search, Filter, Trash2, Copy, ExternalLink, 
-  Download, RefreshCw, ShieldAlert, Check, Info, Lock, User, 
-  LogOut, ArrowLeft, Globe, Phone, MapPin, Star, Calendar, FileSpreadsheet, AlertCircle
+  Lock, User, LogOut, ArrowLeft, Globe, Phone, MapPin, Star, 
+  FileSpreadsheet, AlertCircle, MessageSquare, CheckCircle, Clock, XCircle, HelpCircle
 } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
-import ScrollReveal from '@/components/ScrollReveal';
-
-// Interface for the RadarLocal Lead
-interface RadarLead {
-  id: string;
-  nome: string;
-  segmento: string;
-  segmento_pesquisado: string;
-  telefone: string;
-  endereco: string;
-  website: string;
-  tem_website: boolean;
-  status_site: string;
-  rating: string;
-  origem: string;
-  google_maps_url: string;
-  coletado_em: string;
-  observacao?: string;
-}
+import { leadService, RadarLead, isSupabaseConfigured } from '@/lib/supabase';
 
 export default function Admin() {
   const navigate = useNavigate();
@@ -39,10 +21,13 @@ export default function Admin() {
 
   // Data States
   const [leads, setLeads] = useState<RadarLead[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   
   // Filter States
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSegment, setSelectedSegment] = useState('todos');
+  const [selectedGroup, setSelectedGroup] = useState('todos');
+  const [selectedStatus, setSelectedStatus] = useState('todos');
   const [websiteFilter, setWebsiteFilter] = useState<'todos' | 'sem_site' | 'com_site'>('todos');
   const [phoneFilter, setPhoneFilter] = useState<'todos' | 'com_telefone' | 'sem_telefone'>('todos');
 
@@ -52,17 +37,22 @@ export default function Admin() {
     setIsAuthenticated(authStatus);
 
     if (authStatus) {
-      // Load saved leads from localStorage
-      const saved = localStorage.getItem('radar_local_leads');
-      if (saved) {
-        try {
-          setLeads(JSON.parse(saved));
-        } catch (e) {
-          console.error("Erro ao carregar leads do localStorage", e);
-        }
-      }
+      loadLeads();
     }
   }, [isAuthenticated]);
+
+  // Load leads from Supabase or LocalStorage
+  const loadLeads = async () => {
+    setIsLoading(true);
+    try {
+      const data = await leadService.getLeads();
+      setLeads(data);
+    } catch (err) {
+      showError("Erro ao carregar os leads.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Handle Login
   const handleLogin = (e: React.FormEvent) => {
@@ -88,13 +78,24 @@ export default function Admin() {
     showSuccess("Sessão encerrada.");
   };
 
+  // Format current date and hour for group name
+  const getFormattedGroupName = () => {
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `Leads - ${day}/${month}/${year} ${hours}:${minutes}`;
+  };
+
   // Handle JSON File Upload
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
         
@@ -102,6 +103,8 @@ export default function Admin() {
           showError("O arquivo JSON deve conter uma lista de leads.");
           return;
         }
+
+        const groupName = getFormattedGroupName();
 
         // Validate and normalize structure
         const validatedLeads: RadarLead[] = json.map((item: any, index: number) => ({
@@ -118,44 +121,61 @@ export default function Admin() {
           origem: item.origem || "Google Maps",
           google_maps_url: item.google_maps_url || "",
           coletado_em: item.coletado_em || new Date().toISOString().split('T')[0],
-          observacao: item.observacao || ""
+          observacao: item.observacao || "",
+          grupo_importacao: groupName,
+          status_prospeccao: 'Pendente'
         }));
 
-        setLeads(validatedLeads);
-        localStorage.setItem('radar_local_leads', JSON.stringify(validatedLeads));
-        showSuccess(`${validatedLeads.length} leads importados com sucesso!`);
+        setIsLoading(true);
+        const updatedLeads = await leadService.saveLeads(validatedLeads);
+        setLeads(updatedLeads);
+        showSuccess(`${validatedLeads.length} leads importados no lote "${groupName}"!`);
       } catch (err) {
         showError("Erro ao ler o arquivo JSON. Verifique a formatação.");
+      } finally {
+        setIsLoading(false);
       }
     };
     reader.readAsText(file);
   };
 
   // Clear all imported data
-  const handleClearData = () => {
-    if (window.confirm("Tem certeza que deseja limpar todos os dados importados? Esta ação não pode ser desfeita.")) {
-      setLeads([]);
-      localStorage.removeItem('radar_local_leads');
-      showSuccess("Todos os dados foram limpos.");
+  const handleClearData = async () => {
+    if (window.confirm("Tem certeza que deseja limpar todos os dados? Esta ação não pode ser desfeita.")) {
+      setIsLoading(true);
+      try {
+        await leadService.clearAll();
+        setLeads([]);
+        showSuccess("Todos os dados foram limpos.");
+      } catch (err) {
+        showError("Erro ao limpar os dados.");
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
-  // Update observation for a specific lead
-  const handleUpdateObservation = (id: string, text: string) => {
-    const updated = leads.map(lead => {
-      if (lead.id === id) {
-        return { ...lead, observacao: text };
+  // Update observation or status for a specific lead
+  const handleUpdateLead = async (id: string, updates: Partial<RadarLead>) => {
+    try {
+      const success = await leadService.updateLead(id, updates);
+      if (success) {
+        setLeads(prev => prev.map(lead => lead.id === id ? { ...lead, ...updates } : lead));
       }
-      return lead;
-    });
-    setLeads(updated);
-    localStorage.setItem('radar_local_leads', JSON.stringify(updated));
+    } catch (err) {
+      showError("Erro ao atualizar o lead.");
+    }
   };
 
   // Copy text helper
   const copyText = (text: string, message: string) => {
     navigator.clipboard.writeText(text);
     showSuccess(message);
+  };
+
+  // Clean phone number for links
+  const cleanPhoneNumber = (phone: string) => {
+    return phone.replace(/\D/g, '');
   };
 
   // Export filtered leads to CSV
@@ -168,7 +188,7 @@ export default function Admin() {
     const headers = [
       "ID", "Nome", "Segmento", "Segmento Pesquisado", "Telefone", 
       "Endereco", "Website", "Tem Website", "Status do Site", 
-      "Avaliacao", "Origem", "Google Maps URL", "Coletado Em", "Observacao"
+      "Avaliacao", "Origem", "Google Maps URL", "Coletado Em", "Observacao", "Lote", "Status Prospeccao"
     ];
 
     const rows = filteredLeads.map(lead => [
@@ -185,7 +205,9 @@ export default function Admin() {
       `"${lead.origem}"`,
       `"${lead.google_maps_url}"`,
       `"${lead.coletado_em}"`,
-      `"${(lead.observacao || '').replace(/"/g, '""')}"`
+      `"${(lead.observacao || '').replace(/"/g, '""')}"`,
+      `"${lead.grupo_importacao}"`,
+      `"${lead.status_prospeccao}"`
     ]);
 
     const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
@@ -201,8 +223,9 @@ export default function Admin() {
     showSuccess("CSV exportado com sucesso!");
   };
 
-  // Get unique segments for filter dropdown
+  // Get unique segments, groups, and statuses for filter dropdowns
   const uniqueSegments = Array.from(new Set(leads.map(l => l.segmento))).filter(Boolean);
+  const uniqueGroups = Array.from(new Set(leads.map(l => l.grupo_importacao))).filter(Boolean);
 
   // Filter logic
   const filteredLeads = leads.filter(lead => {
@@ -210,6 +233,8 @@ export default function Admin() {
                           lead.endereco.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesSegment = selectedSegment === 'todos' || lead.segmento === selectedSegment;
+    const matchesGroup = selectedGroup === 'todos' || lead.grupo_importacao === selectedGroup;
+    const matchesStatus = selectedStatus === 'todos' || lead.status_prospeccao === selectedStatus;
     
     const matchesWebsite = websiteFilter === 'todos' || 
       (websiteFilter === 'sem_site' && !lead.tem_website) || 
@@ -220,7 +245,7 @@ export default function Admin() {
       (phoneFilter === 'com_telefone' && hasPhone) || 
       (phoneFilter === 'sem_telefone' && !hasPhone);
 
-    return matchesSearch && matchesSegment && matchesWebsite && matchesPhone;
+    return matchesSearch && matchesSegment && matchesGroup && matchesStatus && matchesWebsite && matchesPhone;
   });
 
   // Dashboard Stats
@@ -231,6 +256,18 @@ export default function Admin() {
   
   // Get unique searched segments
   const uniqueSearchedSegments = Array.from(new Set(leads.map(l => l.segmento_pesquisado))).filter(Boolean);
+
+  // Status styling helper
+  const getStatusBadgeClass = (status: RadarLead['status_prospeccao']) => {
+    switch (status) {
+      case 'Pendente': return 'bg-zinc-800 text-zinc-400 border-zinc-700';
+      case 'Contatado': return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+      case 'Aguardando Resposta': return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+      case 'Fechado': return 'bg-[#00c868]/10 text-[#00c868] border-[#00c868]/20';
+      case 'Sem Interesse': return 'bg-red-500/10 text-red-400 border-red-500/20';
+      default: return 'bg-zinc-800 text-zinc-400 border-zinc-700';
+    }
+  };
 
   // If not authenticated, render the login screen
   if (!isAuthenticated) {
@@ -331,8 +368,17 @@ export default function Admin() {
               </button>
               <span className="text-xs uppercase tracking-[0.25em] text-[#00c868] font-bold font-mono">RADARLOCAL</span>
             </div>
-            <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-white">
+            <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-white flex items-center gap-3">
               Painel de Prospecção Comercial
+              {isSupabaseConfigured ? (
+                <span className="text-[10px] font-mono bg-[#00c868]/10 text-[#00c868] border border-[#00c868]/20 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                  Nuvem Ativa (Supabase)
+                </span>
+              ) : (
+                <span className="text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                  Local (LocalStorage)
+                </span>
+              )}
             </h1>
             <p className="text-zinc-400 text-sm font-light">
               Importe, visualize e filtre leads comerciais gerados pelo script Python do RadarLocal.
@@ -340,6 +386,13 @@ export default function Admin() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={loadLeads}
+              className="p-2.5 rounded-full border border-zinc-850 bg-zinc-950/40 text-zinc-400 hover:text-white transition-all"
+              title="Sincronizar / Recarregar"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            </button>
             <button
               onClick={handleLogout}
               className="flex items-center gap-2 px-4 py-2 rounded-full border border-red-500/20 bg-red-500/5 text-red-400 text-xs font-bold uppercase tracking-wider hover:bg-red-500 hover:text-white transition-all cursor-pointer"
@@ -387,7 +440,7 @@ export default function Admin() {
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-red-500/20 bg-red-500/5 text-red-400 text-xs font-bold uppercase tracking-wider hover:bg-red-500 hover:text-white transition-all cursor-pointer"
               >
                 <Trash2 className="w-4 h-4" />
-                <span>Limpar Dados Importados</span>
+                <span>Limpar Todos os Dados</span>
               </button>
             )}
           </div>
@@ -442,7 +495,7 @@ export default function Admin() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4">
               {/* Search Input */}
-              <div className="lg:col-span-4 relative">
+              <div className="lg:col-span-3 relative">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
                   type="text"
@@ -453,8 +506,22 @@ export default function Admin() {
                 />
               </div>
 
+              {/* Group Filter */}
+              <div className="lg:col-span-2">
+                <select
+                  value={selectedGroup}
+                  onChange={(e) => setSelectedGroup(e.target.value)}
+                  className="w-full bg-zinc-900/30 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[#00c868] transition-all cursor-pointer"
+                >
+                  <option value="todos" className="bg-zinc-950 text-white">Todos os Lotes</option>
+                  {uniqueGroups.map((group, idx) => (
+                    <option key={idx} value={group} className="bg-zinc-950 text-white">{group}</option>
+                  ))}
+                </select>
+              </div>
+
               {/* Segment Filter */}
-              <div className="lg:col-span-3">
+              <div className="lg:col-span-2">
                 <select
                   value={selectedSegment}
                   onChange={(e) => setSelectedSegment(e.target.value)}
@@ -467,29 +534,45 @@ export default function Admin() {
                 </select>
               </div>
 
-              {/* Website Filter */}
+              {/* Status Filter */}
               <div className="lg:col-span-2">
+                <select
+                  value={selectedStatus}
+                  onChange={(e) => setSelectedStatus(e.target.value)}
+                  className="w-full bg-zinc-900/30 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[#00c868] transition-all cursor-pointer"
+                >
+                  <option value="todos" className="bg-zinc-950 text-white">Status: Todos</option>
+                  <option value="Pendente" className="bg-zinc-950 text-white">Pendente</option>
+                  <option value="Contatado" className="bg-zinc-950 text-white">Contatado</option>
+                  <option value="Aguardando Resposta" className="bg-zinc-950 text-white">Aguardando Resposta</option>
+                  <option value="Fechado" className="bg-zinc-950 text-white">Fechado</option>
+                  <option value="Sem Interesse" className="bg-zinc-950 text-white">Sem Interesse</option>
+                </select>
+              </div>
+
+              {/* Website Filter */}
+              <div className="lg:col-span-1.5">
                 <select
                   value={websiteFilter}
                   onChange={(e) => setWebsiteFilter(e.target.value as any)}
                   className="w-full bg-zinc-900/30 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[#00c868] transition-all cursor-pointer"
                 >
-                  <option value="todos" className="bg-zinc-950 text-white">Website: Todos</option>
-                  <option value="sem_site" className="bg-zinc-950 text-white">Sem Website</option>
-                  <option value="com_site" className="bg-zinc-950 text-white">Com Website</option>
+                  <option value="todos" className="bg-zinc-950 text-white">Site: Todos</option>
+                  <option value="sem_site" className="bg-zinc-950 text-white">Sem Site</option>
+                  <option value="com_site" className="bg-zinc-950 text-white">Com Site</option>
                 </select>
               </div>
 
               {/* Phone Filter */}
-              <div className="lg:col-span-2">
+              <div className="lg:col-span-1.5">
                 <select
                   value={phoneFilter}
                   onChange={(e) => setPhoneFilter(e.target.value as any)}
                   className="w-full bg-zinc-900/30 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[#00c868] transition-all cursor-pointer"
                 >
-                  <option value="todos" className="bg-zinc-950 text-white">Telefone: Todos</option>
-                  <option value="com_telefone" className="bg-zinc-950 text-white">Com Telefone</option>
-                  <option value="sem_telefone" className="bg-zinc-950 text-white">Sem Telefone</option>
+                  <option value="todos" className="bg-zinc-950 text-white">Tel: Todos</option>
+                  <option value="com_telefone" className="bg-zinc-950 text-white">Com Tel</option>
+                  <option value="sem_telefone" className="bg-zinc-950 text-white">Sem Tel</option>
                 </select>
               </div>
 
@@ -522,13 +605,14 @@ export default function Admin() {
                 <thead>
                   <tr className="border-b border-zinc-900 bg-zinc-900/20 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
                     <th className="p-4 font-bold">Nome</th>
+                    <th className="p-4 font-bold">Status Prospecção</th>
                     <th className="p-4 font-bold">Segmento</th>
                     <th className="p-4 font-bold">Telefone</th>
                     <th className="p-4 font-bold">Endereço</th>
                     <th className="p-4 font-bold">Website</th>
                     <th className="p-4 font-bold">Status do Site</th>
                     <th className="p-4 font-bold">Avaliação</th>
-                    <th className="p-4 font-bold">Coleta</th>
+                    <th className="p-4 font-bold">Lote / Coleta</th>
                     <th className="p-4 font-bold">Observações</th>
                     <th className="p-4 font-bold text-right">Ações</th>
                   </tr>
@@ -540,6 +624,21 @@ export default function Admin() {
                         {/* Nome */}
                         <td className="p-4 font-bold text-white max-w-[180px] truncate" title={lead.nome}>
                           {lead.nome}
+                        </td>
+
+                        {/* Status Prospecção */}
+                        <td className="p-4">
+                          <select
+                            value={lead.status_prospeccao || 'Pendente'}
+                            onChange={(e) => handleUpdateLead(lead.id, { status_prospeccao: e.target.value as any })}
+                            className={`px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider focus:outline-none cursor-pointer transition-all ${getStatusBadgeClass(lead.status_prospeccao || 'Pendente')}`}
+                          >
+                            <option value="Pendente" className="bg-zinc-950 text-zinc-400">Pendente</option>
+                            <option value="Contatado" className="bg-zinc-950 text-blue-400">Contatado</option>
+                            <option value="Aguardando Resposta" className="bg-zinc-950 text-amber-400">Aguardando Resposta</option>
+                            <option value="Fechado" className="bg-zinc-950 text-[#00c868]">Fechado</option>
+                            <option value="Sem Interesse" className="bg-zinc-950 text-red-400">Sem Interesse</option>
+                          </select>
                         </td>
                         
                         {/* Segmento */}
@@ -597,9 +696,10 @@ export default function Admin() {
                           </div>
                         </td>
 
-                        {/* Data da Coleta */}
+                        {/* Lote / Data da Coleta */}
                         <td className="p-4 text-zinc-500 whitespace-nowrap font-mono text-[10px]">
-                          {lead.coletado_em}
+                          <div className="font-bold text-zinc-400">{lead.grupo_importacao}</div>
+                          <div className="text-[9px] text-zinc-600">{lead.coletado_em}</div>
                         </td>
 
                         {/* Observações */}
@@ -608,7 +708,7 @@ export default function Admin() {
                             type="text"
                             placeholder="Adicionar observação..."
                             value={lead.observacao || ''}
-                            onChange={(e) => handleUpdateObservation(lead.id, e.target.value)}
+                            onChange={(e) => handleUpdateLead(lead.id, { observacao: e.target.value })}
                             className="w-full bg-zinc-900/40 border border-zinc-800 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-[#00c868] transition-all"
                           />
                         </td>
@@ -616,6 +716,30 @@ export default function Admin() {
                         {/* Ações */}
                         <td className="p-4 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1.5">
+                            {/* WhatsApp Action */}
+                            {lead.telefone && lead.telefone !== 'Não informado' && (
+                              <a
+                                href={`https://api.whatsapp.com/send?phone=55${cleanPhoneNumber(lead.telefone)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Chamar no WhatsApp"
+                                className="p-1.5 rounded bg-[#00c868]/10 border border-[#00c868]/20 text-[#00c868] hover:bg-[#00c868] hover:text-black transition-all inline-block"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+
+                            {/* Call Action */}
+                            {lead.telefone && lead.telefone !== 'Não informado' && (
+                              <a
+                                href={`tel:${cleanPhoneNumber(lead.telefone)}`}
+                                title="Ligar diretamente"
+                                className="p-1.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white transition-all inline-block"
+                              >
+                                <Phone className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+
                             {/* Copy Phone */}
                             {lead.telefone && lead.telefone !== 'Não informado' && (
                               <button
@@ -623,7 +747,7 @@ export default function Admin() {
                                 title="Copiar Telefone"
                                 className="p-1.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-colors"
                               >
-                                <Phone className="w-3.5 h-3.5" />
+                                <Copy className="w-3.5 h-3.5" />
                               </button>
                             )}
 
@@ -654,7 +778,7 @@ export default function Admin() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={10} className="p-8 text-center text-zinc-500 italic">
+                      <td colSpan={11} className="p-8 text-center text-zinc-500 italic">
                         Nenhum lead corresponde aos filtros selecionados.
                       </td>
                     </tr>
