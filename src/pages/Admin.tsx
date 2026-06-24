@@ -50,6 +50,16 @@ export default function Admin() {
     }
   }, [isAuthenticated]);
 
+  // Automatically select the most recent list when leads are loaded
+  useEffect(() => {
+    if (leads.length > 0 && selectedGroup === 'todos') {
+      const uniqueGroups = Array.from(new Set(leads.map(l => l.grupo_importacao))).filter(Boolean);
+      if (uniqueGroups.length > 0) {
+        setSelectedGroup(uniqueGroups[0]); // Select the latest imported list by default
+      }
+    }
+  }, [leads]);
+
   // Load leads from Supabase or LocalStorage
   const loadLeads = async () => {
     setIsLoading(true);
@@ -212,6 +222,7 @@ export default function Admin() {
       try {
         await leadService.clearAll();
         setLeads([]);
+        setSelectedGroup('todos');
         showSuccess("Todos os dados foram limpos.");
       } catch (err) {
         showError("Erro ao limpar os dados.");
@@ -793,7 +804,7 @@ export default function Admin() {
               <div className="flex items-center justify-between px-2">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-[#00c868] animate-pulse" />
-                  Leads Filtrados ({filteredLeads.length})
+                  {selectedGroup === 'todos' ? 'Todos os Leads' : `Leads da Lista: ${selectedGroup}`} ({filteredLeads.length})
                 </h3>
               </div>
 
@@ -925,7 +936,7 @@ export default function Admin() {
               <div className="p-6 border-b border-zinc-900 flex items-center justify-between">
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-[#00c868] animate-pulse" />
-                  Leads Filtrados ({filteredLeads.length})
+                  {selectedGroup === 'todos' ? 'Todos os Leads' : `Leads da Lista: ${selectedGroup}`} ({filteredLeads.length})
                 </h3>
               </div>
 
