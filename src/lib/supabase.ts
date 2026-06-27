@@ -63,8 +63,9 @@ export const leadService = {
       try {
         const data = await supabaseFetch('radar_leads?select=*&order=coletado_em.desc');
         if (data) return data as RadarLead[];
-      } catch (e) {
-        console.warn('Erro ao buscar do Supabase, usando LocalStorage:', e);
+      } catch (e: any) {
+        console.error('Erro crítico ao buscar do Supabase:', e);
+        throw new Error(`Erro ao carregar do banco de dados: ${e.message || e}`);
       }
     }
     
@@ -79,10 +80,10 @@ export const leadService = {
           method: 'POST',
           body: JSON.stringify(newLeads)
         });
-        // Retorna a lista completa atualizada do banco de dados para garantir que o estado do painel mantenha todas as listas
         return await this.getLeads();
-      } catch (e) {
-        console.warn('Erro ao salvar no Supabase, salvando no LocalStorage:', e);
+      } catch (e: any) {
+        console.error('Erro crítico ao salvar no Supabase:', e);
+        throw new Error(`Erro ao salvar no banco de dados: ${e.message || e}`);
       }
     }
 
@@ -100,8 +101,9 @@ export const leadService = {
           body: JSON.stringify(updates)
         });
         return true;
-      } catch (e) {
-        console.warn('Erro ao atualizar no Supabase, atualizando no LocalStorage:', e);
+      } catch (e: any) {
+        console.error('Erro crítico ao atualizar no Supabase:', e);
+        throw new Error(`Erro ao atualizar no banco de dados: ${e.message || e}`);
       }
     }
 
@@ -121,8 +123,9 @@ export const leadService = {
           body: JSON.stringify({ grupo_importacao: newName })
         });
         return true;
-      } catch (e) {
-        console.warn('Erro ao renomear grupo no Supabase, atualizando no LocalStorage:', e);
+      } catch (e: any) {
+        console.error('Erro crítico ao renomear grupo no Supabase:', e);
+        throw new Error(`Erro ao renomear no banco de dados: ${e.message || e}`);
       }
     }
 
@@ -141,8 +144,9 @@ export const leadService = {
           method: 'DELETE'
         });
         return true;
-      } catch (e) {
-        console.warn('Erro ao deletar no Supabase, deletando no LocalStorage:', e);
+      } catch (e: any) {
+        console.error('Erro crítico ao deletar no Supabase:', e);
+        throw new Error(`Erro ao deletar no banco de dados: ${e.message || e}`);
       }
     }
 
@@ -159,8 +163,9 @@ export const leadService = {
           method: 'DELETE'
         });
         return true;
-      } catch (e) {
-        console.warn('Erro ao deletar grupo no Supabase, deletando no LocalStorage:', e);
+      } catch (e: any) {
+        console.error('Erro crítico ao deletar grupo no Supabase:', e);
+        throw new Error(`Erro ao deletar grupo no banco de dados: ${e.message || e}`);
       }
     }
 
@@ -180,8 +185,9 @@ export const leadService = {
           }
         });
         return true;
-      } catch (e) {
-        console.warn('Erro ao limpar Supabase:', e);
+      } catch (e: any) {
+        console.error('Erro crítico ao limpar Supabase:', e);
+        throw new Error(`Erro ao limpar o banco de dados: ${e.message || e}`);
       }
     }
     localStorage.removeItem(LOCAL_STORAGE_KEY);
