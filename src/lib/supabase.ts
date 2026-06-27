@@ -75,11 +75,12 @@ export const leadService = {
   async saveLeads(newLeads: RadarLead[]): Promise<RadarLead[]> {
     if (isSupabaseConfigured) {
       try {
-        const data = await supabaseFetch('radar_leads', {
+        await supabaseFetch('radar_leads', {
           method: 'POST',
           body: JSON.stringify(newLeads)
         });
-        if (data) return data as RadarLead[];
+        // Retorna a lista completa atualizada do banco de dados para garantir que o estado do painel mantenha todas as listas
+        return await this.getLeads();
       } catch (e) {
         console.warn('Erro ao salvar no Supabase, salvando no LocalStorage:', e);
       }
