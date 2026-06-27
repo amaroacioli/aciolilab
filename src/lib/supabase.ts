@@ -49,8 +49,18 @@ async function supabaseFetch(path: string, options: RequestInit = {}) {
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Erro Supabase: ${errorText}`);
+    let errorDetails = '';
+    try {
+      const errorJson = await response.json();
+      errorDetails = errorJson.message || errorJson.details || JSON.stringify(errorJson);
+    } catch {
+      try {
+        errorDetails = await response.text();
+      } catch {
+        errorDetails = response.statusText;
+      }
+    }
+    throw new Error(errorDetails || `Erro HTTP ${response.status}`);
   }
 
   if (response.status === 204) return null;
@@ -65,7 +75,7 @@ export const leadService = {
         if (data) return data as RadarLead[];
       } catch (e: any) {
         console.error('Erro crítico ao buscar do Supabase:', e);
-        throw new Error(`Erro ao carregar do banco de dados: ${e.message || e}`);
+        throw new Error(e.message || 'Erro desconhecido ao carregar leads');
       }
     }
     
@@ -91,7 +101,7 @@ export const leadService = {
         return await this.getLeads();
       } catch (e: any) {
         console.error('Erro crítico ao salvar no Supabase:', e);
-        throw new Error(`Erro ao salvar no banco de dados: ${e.message || e}`);
+        throw new Error(e.message || 'Erro desconhecido ao salvar leads');
       }
     }
 
@@ -111,7 +121,7 @@ export const leadService = {
         return true;
       } catch (e: any) {
         console.error('Erro crítico ao atualizar no Supabase:', e);
-        throw new Error(`Erro ao atualizar no banco de dados: ${e.message || e}`);
+        throw new Error(e.message || 'Erro desconhecido ao atualizar lead');
       }
     }
 
@@ -133,7 +143,7 @@ export const leadService = {
         return true;
       } catch (e: any) {
         console.error('Erro crítico ao renomear grupo no Supabase:', e);
-        throw new Error(`Erro ao renomear no banco de dados: ${e.message || e}`);
+        throw new Error(e.message || 'Erro desconhecido ao renomear grupo');
       }
     }
 
@@ -154,7 +164,7 @@ export const leadService = {
         return true;
       } catch (e: any) {
         console.error('Erro crítico ao deletar no Supabase:', e);
-        throw new Error(`Erro ao deletar no banco de dados: ${e.message || e}`);
+        throw new Error(e.message || 'Erro desconhecido ao deletar lead');
       }
     }
 
@@ -173,7 +183,7 @@ export const leadService = {
         return true;
       } catch (e: any) {
         console.error('Erro crítico ao deletar grupo no Supabase:', e);
-        throw new Error(`Erro ao deletar grupo no banco de dados: ${e.message || e}`);
+        throw new Error(e.message || 'Erro desconhecido ao deletar grupo');
       }
     }
 
@@ -195,7 +205,7 @@ export const leadService = {
         return true;
       } catch (e: any) {
         console.error('Erro crítico ao limpar Supabase:', e);
-        throw new Error(`Erro ao limpar o banco de dados: ${e.message || e}`);
+        throw new Error(e.message || 'Erro desconhecido ao limpar banco de dados');
       }
     }
     localStorage.removeItem(LOCAL_STORAGE_KEY);

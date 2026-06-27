@@ -198,7 +198,7 @@ export default function Admin() {
       setTempGroupName('');
       showSuccess(`Lista "${tempGroupName.trim()}" salva com sucesso!`);
     } catch (err: any) {
-      showError(`Erro ao salvar a lista: ${err.message || err}`);
+      showError(err.message || "Erro ao salvar a lista.");
     } finally {
       setIsLoading(false);
     }
@@ -761,8 +761,8 @@ export default function Admin() {
                   <option value="Pendente" className="bg-zinc-950 text-white">Pendente</option>
                   <option value="Contatado" className="bg-zinc-950 text-white">Contatado</option>
                   <option value="Aguardando Resposta" className="bg-zinc-950 text-white">Aguardando Resposta</option>
-                  <option value="Fechado" className="bg-zinc-950 text-white">Fechado</option>
-                  <option value="Sem Interesse" className="bg-zinc-950 text-white">Sem Interesse</option>
+                  <option value="Fechado" className="bg-zinc-950 text-[#00c868]">Fechado</option>
+                  <option value="Sem Interesse" className="bg-zinc-950 text-red-400">Sem Interesse</option>
                 </select>
               </div>
 
