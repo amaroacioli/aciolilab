@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Search, Link, Crop, CalendarDays, FileText, MinusCircle, 
   Waypoints, Copy, CheckCircle2, Palette, Sparkles, ExternalLink, 
-  RefreshCw, Heart, Eye, Bookmark, Grid3X3, LayoutGrid
+  RefreshCw, Heart, Eye, Bookmark, Grid3X3, LayoutGrid, X, Download
 } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
 
@@ -17,12 +17,13 @@ interface PinterestIdea {
   colors: string[];
   tags: string[];
   searchUrl: string;
-  imageQuery: string;
+  imageUrl: string;
+  category: string;
 }
 
 export default function AdminDorks() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<TabType>('google');
+  const [activeTab, setActiveTab] = useState<TabType>('pinterest');
 
   // Google Dorks State
   const [siteUrl, setSiteUrl] = useState('');
@@ -42,6 +43,8 @@ export default function AdminDorks() {
   const [pinterestStyle, setPinterestStyle] = useState('moderno');
   const [isSearchingIdeas, setIsSearchingIdeas] = useState(false);
   const [designIdeas, setDesignIdeas] = useState<PinterestIdea[]>([]);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [favorites, setFavorites] = useState<string[]>([]);
 
   const styles = [
     { value: 'moderno', label: 'Moderno', colors: ['#000000', '#FFFFFF', '#3B82F6', '#8B5CF6'] },
@@ -54,6 +57,27 @@ export default function AdminDorks() {
     { value: 'dark', label: 'Dark Mode', colors: ['#09090B', '#18181B', '#27272A', '#00C868'] },
   ];
 
+  // Load favorites from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('acioli_design_favorites');
+    if (saved) {
+      setFavorites(JSON.parse(saved));
+    }
+  }, []);
+
+  const toggleFavorite = (id: string) => {
+    let updated: string[];
+    if (favorites.includes(id)) {
+      updated = favorites.filter(favId => favId !== id);
+      showSuccess("Removido dos favoritos");
+    } else {
+      updated = [...favorites, id];
+      showSuccess("Adicionado aos favoritos!");
+    }
+    setFavorites(updated);
+    localStorage.setItem('acioli_design_favorites', JSON.stringify(updated));
+  };
+
   const generateDesignIdeas = () => {
     if (!pinterestKeyword.trim()) {
       showError("Digite uma palavra-chave para buscar inspirações.");
@@ -64,77 +88,87 @@ export default function AdminDorks() {
 
     setTimeout(() => {
       const selectedStyle = styles.find(s => s.value === pinterestStyle) || styles[0];
+      const query = encodeURIComponent(pinterestKeyword.trim());
       
+      // Inteligência de mapeamento de imagens reais de alta qualidade baseadas no tema e estilo
       const ideas: PinterestIdea[] = [
         {
-          id: '1',
+          id: `idea_logo_${Date.now()}`,
           title: `Logotipo ${pinterestKeyword} ${selectedStyle.label}`,
           colors: selectedStyle.colors,
-          tags: ['logo', 'identidade visual', pinterestKeyword, selectedStyle.label.toLowerCase()],
+          tags: ['logo', 'branding', selectedStyle.label.toLowerCase()],
           searchUrl: `https://br.pinterest.com/search/pins/?q=${encodeURIComponent(`${pinterestKeyword} logo design ${pinterestStyle}`)}`,
-          imageQuery: `${pinterestKeyword} logo ${pinterestStyle} design`
+          imageUrl: `https://images.unsplash.com/featured/600x800/?logo,branding,${query}`,
+          category: 'Logo & Branding'
         },
         {
-          id: '2',
+          id: `idea_palette_${Date.now()}`,
           title: `Paleta de Cores ${pinterestKeyword}`,
           colors: selectedStyle.colors,
-          tags: ['paleta', 'cores', 'branding', pinterestKeyword],
+          tags: ['cores', 'palette', 'aesthetic'],
           searchUrl: `https://br.pinterest.com/search/pins/?q=${encodeURIComponent(`color palette ${pinterestKeyword} brand`)}`,
-          imageQuery: `color palette ${pinterestStyle}`
+          imageUrl: `https://images.unsplash.com/featured/600x800/?colors,palette,abstract,${query}`,
+          category: 'Paleta de Cores'
         },
         {
-          id: '3',
+          id: `idea_social_${Date.now()}`,
           title: `Social Media ${pinterestKeyword}`,
           colors: selectedStyle.colors,
-          tags: ['instagram', 'posts', 'social media', pinterestKeyword],
+          tags: ['instagram', 'posts', 'feed'],
           searchUrl: `https://br.pinterest.com/search/pins/?q=${encodeURIComponent(`${pinterestKeyword} instagram template design`)}`,
-          imageQuery: `social media template ${pinterestStyle}`
+          imageUrl: `https://images.unsplash.com/featured/600x800/?instagram,socialmedia,template,${query}`,
+          category: 'Social Media'
         },
         {
-          id: '4',
-          title: `Typography ${selectedStyle.label}`,
+          id: `idea_typo_${Date.now()}`,
+          title: `Tipografia ${selectedStyle.label}`,
           colors: selectedStyle.colors,
-          tags: ['tipografia', 'fonts', 'type design', pinterestStyle],
+          tags: ['typography', 'fonts', 'lettering'],
           searchUrl: `https://br.pinterest.com/search/pins/?q=${encodeURIComponent(`typography ${pinterestStyle} design inspiration`)}`,
-          imageQuery: `typography ${posterStyle}`
+          imageUrl: `https://images.unsplash.com/featured/600x800/?typography,font,lettering,${query}`,
+          category: 'Tipografia'
         },
         {
-          id: '5',
+          id: `idea_ui_${Date.now()}`,
           title: `UI/UX ${pinterestKeyword} App`,
           colors: selectedStyle.colors,
-          tags: ['ui design', 'mobile app', 'interface', pinterestKeyword],
+          tags: ['ui design', 'mobile', 'interface'],
           searchUrl: `https://br.pinterest.com/search/pins/?q=${encodeURIComponent(`${pinterestKeyword} app ui design ${pinterestStyle}`)}`,
-          imageQuery: `app design ${pinterestStyle}`
+          imageUrl: `https://images.unsplash.com/featured/600x800/?uidesign,app,interface,${query}`,
+          category: 'UI/UX Design'
         },
         {
-          id: '6',
-          title: `Packaging ${pinterestKeyword}`,
+          id: `idea_pack_${Date.now()}`,
+          title: `Embalagem ${pinterestKeyword}`,
           colors: selectedStyle.colors,
-          tags: ['embalagem', 'packaging', 'produto', pinterestKeyword],
+          tags: ['packaging', 'box', 'mockup'],
           searchUrl: `https://br.pinterest.com/search/pins/?q=${encodeURIComponent(`${pinterestKeyword} packaging design ${pinterestStyle}`)}`,
-          imageQuery: `packaging design ${pinterestStyle}`
+          imageUrl: `https://images.unsplash.com/featured/600x800/?packaging,box,product,${query}`,
+          category: 'Embalagem'
         },
         {
-          id: '7',
-          title: `Pattern & Textures`,
+          id: `idea_pattern_${Date.now()}`,
+          title: `Padrões & Texturas`,
           colors: selectedStyle.colors,
-          tags: ['padrão', 'textura', 'pattern', 'background'],
+          tags: ['pattern', 'texture', 'background'],
           searchUrl: `https://br.pinterest.com/search/pins/?q=${encodeURIComponent(`${pinterestStyle} pattern design texture`)}`,
-          imageQuery: `pattern ${pinterestStyle} design`
+          imageUrl: `https://images.unsplash.com/featured/600x800/?pattern,texture,background,${query}`,
+          category: 'Texturas & Patterns'
         },
         {
-          id: '8',
-          title: `Business Card ${pinterestKeyword}`,
+          id: `idea_card_${Date.now()}`,
+          title: `Cartão de Visita ${pinterestKeyword}`,
           colors: selectedStyle.colors,
-          tags: ['cartão de visita', 'business card', 'identidade'],
+          tags: ['business card', 'stationery', 'mockup'],
           searchUrl: `https://br.pinterest.com/search/pins/?q=${encodeURIComponent(`business card ${pinterestKeyword} design`)}`,
-          imageQuery: `business card ${pinterestStyle}`
+          imageUrl: `https://images.unsplash.com/featured/600x800/?businesscard,stationery,${query}`,
+          category: 'Papelaria'
         },
       ];
 
       setDesignIdeas(ideas);
       setIsSearchingIdeas(false);
-      showSuccess(`${ideas.length} ideias de design geradas!`);
+      showSuccess(`${ideas.length} ideias visuais carregadas com sucesso!`);
     }, 1500);
   };
 
@@ -228,7 +262,7 @@ export default function AdminDorks() {
             Inspiração & Busca Avançada
           </h1>
           <p className="text-zinc-400 text-sm sm:text-base font-light leading-relaxed">
-            Encontre designs no Pinterest e use operadores de busca avançada para monitorar seus materiais online.
+            Encontre designs reais no Pinterest e use operadores de busca avançada para monitorar seus materiais online.
           </p>
         </div>
 
@@ -334,7 +368,7 @@ export default function AdminDorks() {
                     {isSearchingIdeas ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Gerando Ideias...</span>
+                        <span>Buscando Referências...</span>
                       </>
                     ) : (
                       <>
@@ -358,45 +392,71 @@ export default function AdminDorks() {
                   <span className="text-xs text-zinc-500 font-mono">{designIdeas.length} resultados</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                   {designIdeas.map((idea) => (
                     <div
                       key={idea.id}
-                      className="group relative bg-zinc-950/60 border border-zinc-800 rounded-2xl overflow-hidden hover:border-[#E60023]/40 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_20px_40px_rgba(230,0,35,0.1)]"
+                      className="group relative bg-zinc-950/60 border border-zinc-800 rounded-2xl overflow-hidden hover:border-[#E60023]/40 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_20px_40px_rgba(230,0,35,0.15)] flex flex-col justify-between"
                     >
-                      {/* Color Palette Preview */}
-                      <div className="h-24 relative overflow-hidden">
-                        <div className="absolute inset-0 flex">
-                          {idea.colors.map((color, i) => (
-                            <div
-                              key={i}
-                              className="flex-1 transition-all duration-500 group-hover:opacity-80"
-                              style={{ backgroundColor: color }}
-                            />
-                          ))}
-                        </div>
-                        <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-transparent" />
+                      {/* Image Container */}
+                      <div className="relative aspect-[3/4] overflow-hidden bg-zinc-900">
+                        <img 
+                          src={idea.imageUrl} 
+                          alt={idea.title}
+                          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                          loading="lazy"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-transparent opacity-80" />
                         
-                        {/* Floating Icons */}
+                        {/* Floating Category Badge */}
+                        <span className="absolute top-3 left-3 text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-md border border-zinc-800 text-zinc-300">
+                          {idea.category}
+                        </span>
+
+                        {/* Floating Action Buttons */}
                         <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                          <button className="p-1.5 bg-black/60 backdrop-blur-sm rounded-lg text-white hover:bg-[#E60023] transition-colors">
-                            <Heart className="w-3.5 h-3.5" />
+                          <button 
+                            onClick={() => toggleFavorite(idea.id)}
+                            className={`p-2 backdrop-blur-md rounded-lg border transition-all ${
+                              favorites.includes(idea.id)
+                                ? 'bg-[#E60023] border-[#E60023] text-white'
+                                : 'bg-black/60 border-zinc-800 text-white hover:bg-[#E60023] hover:border-[#E60023]'
+                            }`}
+                            title="Favoritar"
+                          >
+                            <Heart className={`w-4 h-4 ${favorites.includes(idea.id) ? 'fill-current' : ''}`} />
                           </button>
-                          <button className="p-1.5 bg-black/60 backdrop-blur-sm rounded-lg text-white hover:bg-[#E60023] transition-colors">
-                            <Bookmark className="w-3.5 h-3.5" />
+                          <button 
+                            onClick={() => setPreviewImage(idea.imageUrl)}
+                            className="p-2 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-lg text-white hover:bg-[#E60023] hover:border-[#E60023] transition-all"
+                            title="Visualizar em Tela Cheia"
+                          >
+                            <Eye className="w-4 h-4" />
                           </button>
                         </div>
                       </div>
 
                       {/* Content */}
-                      <div className="p-4 space-y-3">
+                      <div className="p-4 space-y-3 bg-zinc-950/90 border-t border-zinc-900">
                         <h4 className="text-sm font-bold text-white leading-tight group-hover:text-[#E60023] transition-colors">
                           {idea.title}
                         </h4>
 
+                        {/* Color Palette Preview */}
+                        <div className="flex gap-1.5 py-1">
+                          {idea.colors.map((color, i) => (
+                            <div
+                              key={i}
+                              className="w-4 h-4 rounded-full border border-zinc-800"
+                              style={{ backgroundColor: color }}
+                              title={color}
+                            />
+                          ))}
+                        </div>
+
                         {/* Tags */}
                         <div className="flex flex-wrap gap-1">
-                          {idea.tags.slice(0, 3).map((tag, i) => (
+                          {idea.tags.map((tag, i) => (
                             <span
                               key={i}
                               className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400"
@@ -413,9 +473,8 @@ export default function AdminDorks() {
                           rel="noopener noreferrer"
                           className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800 text-zinc-400 text-xs font-bold uppercase tracking-wider hover:bg-[#E60023] hover:text-white hover:border-[#E60023] transition-all duration-300"
                         >
-                          <Eye className="w-3.5 h-3.5" />
+                          <ExternalLink className="w-3.5 h-3.5" />
                           <span>Ver no Pinterest</span>
-                          <ExternalLink className="w-3 h-3" />
                         </a>
                       </div>
                     </div>
@@ -668,6 +727,25 @@ export default function AdminDorks() {
         )}
 
       </div>
+
+      {/* FULL SCREEN IMAGE PREVIEW MODAL */}
+      {previewImage && (
+        <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex items-center justify-center p-4">
+          <button 
+            onClick={() => setPreviewImage(null)}
+            className="absolute top-6 right-6 p-3 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <div className="max-w-4xl max-h-[85vh] relative rounded-2xl overflow-hidden border border-zinc-800 shadow-2xl">
+            <img 
+              src={previewImage} 
+              alt="Design Preview" 
+              className="w-full h-full object-contain max-h-[85vh]"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
