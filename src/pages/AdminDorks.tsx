@@ -95,7 +95,6 @@ export default function AdminDorks() {
 
     let queryParts: string[] = [];
 
-    // Definir o escopo do domínio do Pinterest baseado no tipo de conteúdo
     if (contentType === 'pins') {
       queryParts.push('site:pinterest.com/pin/');
     } else if (contentType === 'boards') {
@@ -106,15 +105,12 @@ export default function AdminDorks() {
       queryParts.push('site:pinterest.com');
     }
 
-    // Adicionar palavra-chave principal
     queryParts.push(`"${pinterestKeyword.trim()}"`);
 
-    // Adicionar estilo se selecionado
     if (pinterestStyle !== 'all') {
       queryParts.push(`"${pinterestStyle}"`);
     }
 
-    // Excluir páginas AMP do Pinterest que poluem o Google
     queryParts.push('-inurl:amp');
 
     const finalQuery = queryParts.join(' ');
@@ -183,6 +179,25 @@ export default function AdminDorks() {
     }
 
     setGeneratedQuery(searchQuery);
+    showSuccess("Query gerada com sucesso!");
+  };
+
+  const handleOpenGoogle = () => {
+    if (!generatedQuery) {
+      showError("Gere a busca primeiro.");
+      return;
+    }
+    const url = `https://www.google.com/search?q=${encodeURIComponent(generatedQuery)}`;
+    window.open(url, '_blank');
+  };
+
+  const handleOpenGoogleImages = () => {
+    if (!generatedQuery) {
+      showError("Gere a busca primeiro.");
+      return;
+    }
+    const url = `https://www.google.com/search?q=${encodeURIComponent(generatedQuery)}&tbm=isch`;
+    window.open(url, '_blank');
   };
 
   return (
@@ -280,7 +295,7 @@ export default function AdminDorks() {
                         return (
                           <button
                             key={type.value}
-                            onClick={() => setContentType(type.value as any)}
+                            onClick={() => setContentType(type.value as PinterestContentType)}
                             className={`p-4 rounded-xl border text-left transition-all duration-300 cursor-pointer group ${
                               isSelected
                                 ? 'bg-[#E60023]/10 border-[#E60023] scale-[1.02]'
@@ -432,10 +447,7 @@ export default function AdminDorks() {
             <div className="relative group">
               <div className="absolute -inset-px bg-gradient-to-r from-[#00c868]/30 via-zinc-800 to-[#00c868]/10 rounded-3xl opacity-40 blur-sm group-hover:opacity-60 transition-all duration-700" />
               
-              <form
-                onSubmit={(e) => { e.preventDefault(); handleGenerateDork(); }}
-                className="relative bg-zinc-950/90 rounded-3xl p-8 sm:p-10 border border-zinc-850/80 shadow-2xl space-y-8"
-              >
+              <div className="relative bg-zinc-950/90 rounded-3xl p-8 sm:p-10 border border-zinc-850/80 shadow-2xl space-y-8">
                 <div className="space-y-2">
                   <label className="block text-zinc-300 text-[11px] uppercase tracking-wider font-bold font-mono flex items-center gap-1.5">
                     <Link className="w-4 h-4 text-zinc-500" />
@@ -582,13 +594,13 @@ export default function AdminDorks() {
                 </div>
 
                 <button
-                  type="submit"
+                  onClick={handleGenerateDork}
                   className="w-full flex items-center justify-center gap-4 py-4 rounded-full bg-[#00c868]/10 hover:bg-[#00c868] text-white hover:text-black border-2 border-[#00c868]/20 hover:border-[#00c868] font-black text-xs sm:text-sm tracking-[0.2em] uppercase transition-all duration-500 backdrop-blur-md shadow-[0_20px_50px_rgba(0,200,104,0.08)] hover:shadow-[0_25px_60px_rgba(0,200,104,0.22)] hover:scale-[1.03] active:scale-[0.97] cursor-pointer"
                 >
                   <Search className="w-4 h-4" />
                   <span>Gerar Query de Busca</span>
                 </button>
-              </form>
+              </div>
             </div>
 
             {generatedQuery && (
