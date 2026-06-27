@@ -6,7 +6,7 @@ import {
   Upload, FileText, Search, Filter, Trash2, Copy, ExternalLink, 
   Lock, User, LogOut, ArrowLeft, Globe, Phone, MapPin, Star, 
   AlertCircle, MessageSquare, Calendar, Pencil, Check, X, Save,
-  RefreshCw, CheckCircle2, ShieldSearch
+  RefreshCw, CheckCircle2, Shield
 } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
 import { leadService, RadarLead, isSupabaseConfigured } from '@/lib/supabase';
@@ -473,7 +473,7 @@ export default function Admin() {
               onClick={() => navigate('/admin/dorks')}
               className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-[#00c868]/20 bg-[#00c868]/5 text-[#00c868] text-xs font-bold uppercase tracking-wider hover:bg-[#00c868] hover:text-black transition-all cursor-pointer"
             >
-              <ShieldSearch className="w-4 h-4" />
+              <Shield className="w-4 h-4" />
               <span>Dorks</span>
             </button>
             <button
