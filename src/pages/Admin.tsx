@@ -66,8 +66,8 @@ export default function Admin() {
     try {
       const data = await leadService.getLeads();
       setLeads(data);
-    } catch (err) {
-      showError("Erro ao carregar os leads.");
+    } catch (err: any) {
+      showError(`Erro ao carregar leads: ${err.message || err}`);
     } finally {
       setIsLoading(false);
     }
@@ -196,9 +196,9 @@ export default function Admin() {
       setSelectedGroup(tempGroupName.trim());
       setTempLeads(null);
       setTempGroupName('');
-      showSuccess(`Lista "${tempGroupName.trim()}" salva com sucesso no banco de dados!`);
-    } catch (err) {
-      showError("Erro ao salvar a lista no banco de dados.");
+      showSuccess(`Lista "${tempGroupName.trim()}" salva com sucesso!`);
+    } catch (err: any) {
+      showError(`Erro ao salvar a lista: ${err.message || err}`);
     } finally {
       setIsLoading(false);
     }
@@ -220,8 +220,8 @@ export default function Admin() {
         setLeads([]);
         setSelectedGroup('todos');
         showSuccess("Todos os dados foram limpos.");
-      } catch (err) {
-        showError("Erro ao limpar os dados.");
+      } catch (err: any) {
+        showError(`Erro ao limpar dados: ${err.message || err}`);
       } finally {
         setIsLoading(false);
       }
@@ -241,8 +241,8 @@ export default function Admin() {
         } else {
           showError("Não foi possível deletar a lista.");
         }
-      } catch (err) {
-        showError("Erro ao deletar a lista.");
+      } catch (err: any) {
+        showError(`Erro ao deletar lista: ${err.message || err}`);
       } finally {
         setIsLoading(false);
       }
@@ -256,8 +256,8 @@ export default function Admin() {
       if (success) {
         setLeads(prev => prev.map(lead => lead.id === id ? { ...lead, ...updates } : lead));
       }
-    } catch (err) {
-      showError("Erro ao atualizar o lead.");
+    } catch (err: any) {
+      showError(`Erro ao atualizar lead: ${err.message || err}`);
     }
   };
 
@@ -288,8 +288,8 @@ export default function Admin() {
       } else {
         showError("Não foi possível renomear a lista.");
       }
-    } catch (err) {
-      showError("Erro ao renomear a lista.");
+    } catch (err: any) {
+      showError(`Erro ao renomear lista: ${err.message || err}`);
     } finally {
       setIsLoading(false);
     }
