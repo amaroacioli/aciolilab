@@ -11,6 +11,18 @@ import {
 import { showSuccess, showError } from '@/utils/toast';
 import { leadService, RadarLead, isSupabaseConfigured } from '@/lib/supabase';
 
+// Função auxiliar para gerar UUIDs válidos no padrão RFC4122
+const generateUUID = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
 export default function Admin() {
   const navigate = useNavigate();
   
@@ -125,7 +137,7 @@ export default function Admin() {
 
         const defaultGroupName = getFormattedGroupName();
 
-        const validated: RadarLead[] = json.map((item: any, index: number) => {
+        const validated: RadarLead[] = json.map((item: any) => {
           const websiteUrl = (item.website || item.site || "").trim();
           const hasWebsiteField = item.tem_website !== undefined ? item.tem_website : (item.tem_site !== undefined ? item.tem_site : null);
           
@@ -141,8 +153,9 @@ export default function Admin() {
             tem_website = !!(websiteUrl && websiteUrl !== 'Não informado' && websiteUrl !== 'None' && websiteUrl !== 'null');
           }
 
+          // Sempre gera um UUID válido para evitar erros de restrição de chave primária no Supabase
           return {
-            id: item.id || `lead_${Date.now()}_${index}`,
+            id: generateUUID(),
             nome: item.nome || item.name || "Sem nome",
             segmento: item.segmento || item.segment || "Não informado",
             segmento_pesquisado: item.segmento_pesquisado || "Geral",
@@ -760,7 +773,7 @@ export default function Admin() {
                   <option value="todos" className="bg-zinc-950 text-white">Status: Todos</option>
                   <option value="Pendente" className="bg-zinc-950 text-white">Pendente</option>
                   <option value="Contatado" className="bg-zinc-950 text-white">Contatado</option>
-                  <option value="Aguardando Resposta" className="bg-zinc-950 text-white">Aguardando Resposta</option>
+                  <option value="Aguardando Resposta" className="bg-zinc-950 text-amber-400">Aguardando Resposta</option>
                   <option value="Fechado" className="bg-zinc-950 text-[#00c868]">Fechado</option>
                   <option value="Sem Interesse" className="bg-zinc-950 text-red-400">Sem Interesse</option>
                 </select>

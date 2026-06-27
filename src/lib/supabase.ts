@@ -86,17 +86,10 @@ export const leadService = {
   async saveLeads(newLeads: RadarLead[]): Promise<RadarLead[]> {
     if (isSupabaseConfigured) {
       try {
-        // Remove o ID temporário do cliente para que o Supabase gere o ID correto automaticamente (UUID ou BigInt)
-        const leadsToPost = newLeads.map(({ id, ...rest }) => {
-          if (id && id.startsWith('lead_')) {
-            return rest;
-          }
-          return { id, ...rest };
-        });
-
+        // Envia os leads exatamente como estão, incluindo os UUIDs válidos gerados pelo cliente
         await supabaseFetch('radar_leads', {
           method: 'POST',
-          body: JSON.stringify(leadsToPost)
+          body: JSON.stringify(newLeads)
         });
         return await this.getLeads();
       } catch (e: any) {
