@@ -43,28 +43,38 @@ async function supabaseFetch(path: string, options: RequestInit = {}) {
     ...options.headers,
   };
 
-  const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
-    ...options,
-    headers,
-  });
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
+      ...options,
+      headers,
+    });
 
-  if (!response.ok) {
-    let errorDetails = '';
-    try {
-      const errorJson = await response.json();
-      errorDetails = errorJson.message || errorJson.details || JSON.stringify(errorJson);
-    } catch {
+    if (!response.ok) {
+      let errorDetails = '';
       try {
-        errorDetails = await response.text();
+        const errorJson = await response.json();
+        errorDetails = errorJson.message || errorJson.details || JSON.stringify(errorJson);
       } catch {
-        errorDetails = response.statusText;
+        try {
+          errorDetails = await response.text();
+        } catch {
+          errorDetails = response.statusText;
+        }
       }
+      throw new Error(errorDetails || `Erro HTTP ${response.status}`);
     }
-    throw new Error(errorDetails || `Erro HTTP ${response.status}`);
-  }
 
-  if (response.status === 204) return null;
-  return response.json();
+    if (response.status === 204) return null;
+    return response.json();
+  } catch (e: any) {
+    // Captura o erro clássico de rede "Failed to fetch" e dá um diagnóstico claro
+    if (e.message === 'Failed to fetch' || e.name === 'TypeError') {
+      throw new Error(
+        "Conexão recusada pelo Supabase. Verifique se o seu projeto não está PAUSADO no painel do Supabase (basta entrar lá e clicar em 'Restore Project') ou se as credenciais no arquivo .env estão corretas."
+      );
+    }
+    throw e;
+  }
 }
 
 export const leadService = {
