@@ -481,7 +481,14 @@ export default function Admin() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => navigate('/clientes')}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-[#b7dca0]/20 bg-[#b7dca0]/5 text-[#b7dca0] text-xs font-bold uppercase tracking-wider hover:bg-[#b7dca0] hover:text-black transition-all cursor-pointer"
+            >
+              <User className="w-4 h-4" />
+              <span>Clientes</span>
+            </button>
             <button
               onClick={() => navigate('/admin/dorks')}
               className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-[#00c868]/20 bg-[#00c868]/5 text-[#00c868] text-xs font-bold uppercase tracking-wider hover:bg-[#00c868] hover:text-black transition-all cursor-pointer"
