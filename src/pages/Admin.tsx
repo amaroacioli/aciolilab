@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
 import { leadService, RadarLead, isSupabaseConfigured } from '@/lib/supabase';
+import { loginDeliveryAdmin } from '@/lib/client-deliveries';
 
 // Função auxiliar para gerar UUIDs válidos no padrão RFC4122
 const generateUUID = () => {
@@ -86,23 +87,26 @@ export default function Admin() {
   };
 
   // Handle Login
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
-
-    if (username === 'acioli' && password === 'Aliens343*') {
+    try {
+      await loginDeliveryAdmin(username, password);
       sessionStorage.setItem('acioli_admin_auth', 'true');
       setIsAuthenticated(true);
+      setPassword('');
       showSuccess("Acesso autorizado com sucesso!");
-    } else {
-      setLoginError("Usuário ou senha incorretos.");
-      showError("Credenciais inválidas.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Não foi possível entrar.';
+      setLoginError(message);
+      showError(message);
     }
   };
 
   // Handle Logout
   const handleLogout = () => {
     sessionStorage.removeItem('acioli_admin_auth');
+    sessionStorage.removeItem('acioli_delivery_token');
     setIsAuthenticated(false);
     setUsername('');
     setPassword('');
