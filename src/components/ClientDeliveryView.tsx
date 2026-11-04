@@ -4,13 +4,22 @@ import { ClientDelivery, DeliveryItem } from '@/lib/client-deliveries';
 
 function DeliveryVideo({ item }: { item: DeliveryItem }) {
   const [url, setUrl] = useState('');
+  const [playbackError, setPlaybackError] = useState(false);
   useEffect(() => {
+    setPlaybackError(false);
+    setUrl('');
     if (!item.video) return;
     const objectUrl = URL.createObjectURL(item.video);
     setUrl(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
   }, [item.video]);
-  return url ? <video className="max-h-[560px] w-full rounded-xl bg-black" controls playsInline preload="metadata" src={url} aria-label={item.title} /> : null;
+  return url ? <div>
+    <video className="max-h-[560px] w-full rounded-xl bg-black" controls playsInline preload="metadata" src={url} aria-label={item.title} onError={() => setPlaybackError(true)} />
+    {playbackError && <div role="alert" className="mt-3 rounded-xl border border-white/10 p-4 text-xs leading-6 text-zinc-400">
+      Não foi possível reproduzir este vídeo neste navegador. MOV/HEVC do iPhone pode exigir Safari e um dispositivo compatível. Você também pode baixar o original e abrir em um reprodutor compatível.
+      <a href={url} download={item.fileName || 'video.mov'} className="mt-2 block text-[#b7dca0] underline">Baixar vídeo original</a>
+    </div>}
+  </div> : null;
 }
 
 export default function ClientDeliveryView({ delivery }: { delivery: ClientDelivery }) {
