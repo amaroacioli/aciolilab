@@ -24,7 +24,6 @@ export interface ClientDelivery {
   items: DeliveryItem[];
 }
 
-export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 export const hasVideo = (item: DeliveryItem) => !!(item.video || item.videoPath || item.videoUrl);
 export const normalizeSlug = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
 export const deliveryLink = (delivery: ClientDelivery) => new URL(`/entregas/${delivery.slug}`, window.location.origin).href;
@@ -91,26 +90,35 @@ export async function listDeliveries(): Promise<ClientDelivery[]> {
   return [...deliveries, ...local.filter(entry => !deliveries.some(remote => remote.id === entry.id))].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export async function saveDelivery(delivery: ClientDelivery, onProgress?: (message: string) => void): Promise<ClientDelivery> {
+export async function saveDelivery(delivery: ClientDelivery, onProgress?: (message: string) => void, signal?: AbortSignal): Promise<ClientDelivery> {
   const items: DeliveryItem[] = [];
-  for (const [index, item] of delivery.items.entries()) {
-    if (item.video) {
-      if (item.video.size > MAX_VIDEO_BYTES) throw new Error(`${item.fileName || item.title}: o limite é 50 MB por vídeo.`);
-      onProgress?.(`Enviando vídeo ${index + 1} de ${delivery.items.length}...`);
-      const extension = /\.mov$/i.test(item.fileName || '') || /quicktime/i.test(item.video.type) ? 'mov' : item.video.type === 'video/webm' ? 'webm' : item.video.type === 'video/ogg' ? 'ogg' : 'mp4';
-      const { path, token } = await request<{ path: string; token: string }>({ action: 'upload', id: delivery.id, extension });
-      const contentType = { mov: 'video/quicktime', mp4: 'video/mp4', webm: 'video/webm', ogg: 'video/ogg' }[extension];
-      const { error } = await supabase.storage.from('client-delivery-videos').uploadToSignedUrl(path, token, item.video, { contentType });
-      if (error) throw new Error(`Falha ao enviar ${item.fileName || item.title}: ${error.message}`);
-      items.push({ id: item.id, title: item.title, description: item.description, videoPath: path, fileName: item.fileName, videoSize: item.video.size });
-    } else {
-      items.push({ id: item.id, title: item.title, description: item.description, videoPath: item.videoPath, fileName: item.fileName, videoSize: item.videoSize });
+  const { prepareDeliveryVideo, releaseVideoCompressor } = await import('./video-compression');
+  const checkAbort = () => { if (signal?.aborted) throw new DOMException('Processamento cancelado.', 'AbortError'); };
+  try {
+    for (const [index, item] of delivery.items.entries()) {
+      checkAbort();
+      if (item.video) {
+        const label = `Vídeo ${index + 1}/${delivery.items.length}`;
+        const prepared = await prepareDeliveryVideo(item.video, item.fileName || 'video.mp4', message => onProgress?.(`${label} — ${message}`), signal);
+        checkAbort();
+        const extension = prepared.video.type === 'video/mp4' ? 'mp4' : prepared.video.type === 'video/webm' ? 'webm' : prepared.video.type === 'video/ogg' ? 'ogg' : 'mov';
+        onProgress?.(`Enviando vídeo ${index + 1} de ${delivery.items.length} (${(prepared.originalSize / 1024 / 1024).toFixed(1)} → ${(prepared.video.size / 1024 / 1024).toFixed(1)} MB)...`);
+        const { path, token } = await request<{ path: string; token: string }>({ action: 'upload', id: delivery.id, extension });
+        const { error } = await supabase.storage.from('client-delivery-videos').uploadToSignedUrl(path, token, prepared.video, { contentType: prepared.video.type });
+        if (error) throw new Error(`Falha ao enviar ${item.fileName || item.title}: ${error.message}`);
+        items.push({ id: item.id, title: item.title, description: item.description, videoPath: path, fileName: prepared.fileName, videoSize: prepared.video.size });
+      } else {
+        items.push({ id: item.id, title: item.title, description: item.description, videoPath: item.videoPath, fileName: item.fileName, videoSize: item.videoSize });
+      }
     }
+    checkAbort();
+    onProgress?.(delivery.published ? 'Publicando página...' : 'Salvando rascunho...');
+    const { delivery: saved } = await request<{ delivery: ClientDelivery }>({ action: 'save', delivery: { ...delivery, items, localOnly: undefined } });
+    await removeLocal(delivery.id);
+    return saved;
+  } finally {
+    releaseVideoCompressor();
   }
-  onProgress?.(delivery.published ? 'Publicando página...' : 'Salvando rascunho...');
-  const { delivery: saved } = await request<{ delivery: ClientDelivery }>({ action: 'save', delivery: { ...delivery, items, localOnly: undefined } });
-  await removeLocal(delivery.id);
-  return saved;
 }
 
 export async function deleteDelivery(id: string) {

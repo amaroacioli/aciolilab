@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpRight, Copy, ExternalLink, Eye, Film, FolderOpen, Globe, Loader2, Plus, Search, Sparkles, Trash2, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,8 @@ export default function Clientes() {
   const [progress, setProgress] = useState('');
   const [workingId, setWorkingId] = useState<string | null>(null);
   const [publishedDelivery, setPublishedDelivery] = useState<ClientDelivery | null>(null);
+  const processingController = useRef<AbortController | null>(null);
+  useEffect(() => () => processingController.current?.abort(), []);
 
   const reportError = (error: unknown) => {
     if (error instanceof DeliverySessionError) { setAuthenticated(false); toast.error('Entre novamente para acessar a publicação online.'); }
@@ -45,14 +47,18 @@ export default function Clientes() {
     if ((published && !draft.items.length) || draft.items.some(item => !item.title.trim() || (!hasVideo(item) && !item.description.trim()))) { toast.error('Cada bloco precisa de título e vídeo ou explicação. Adicione conteúdo antes de publicar.'); return; }
     setBusy(true);
     setProgress('Preparando envio...');
+    const controller = new AbortController();
+    processingController.current = controller;
     try {
-      const saved = await saveDelivery({ ...draft, client: draft.client.trim(), title: draft.title.trim(), published }, setProgress);
+      const saved = await saveDelivery({ ...draft, client: draft.client.trim(), title: draft.title.trim(), published }, setProgress, controller.signal);
       setDeliveries(current => [saved, ...current.filter(entry => entry.id !== saved.id)]);
       setDraft(null);
       if (saved.published) setPublishedDelivery(saved);
       toast.success(saved.published ? 'Página publicada! O link já pode ser enviado ao cliente.' : 'Rascunho salvo online. Ainda não está público.');
-    } catch (error) { reportError(error); }
-    finally { setBusy(false); setProgress(''); }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') toast.info('Compactação cancelada. Os vídeos continuam no editor para tentar novamente.');
+      else reportError(error);
+    } finally { processingController.current = null; setBusy(false); setProgress(''); }
   };
   const copyLink = async (delivery: ClientDelivery) => {
     const link = deliveryLink(delivery);
@@ -106,7 +112,7 @@ export default function Clientes() {
       </article>)}</div> : !loadError && <div className="rounded-2xl border border-dashed border-white/10 bg-[#111419]/60 px-6 py-20 text-center"><div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-[#b7dca0]/20 bg-[#b7dca0]/5 text-[#b7dca0]"><FolderOpen size={26} strokeWidth={1.4} /></div><h3 className="text-xl font-medium">{search ? 'Nenhuma entrega encontrada' : 'Seu trabalho merece uma boa apresentação.'}</h3><p className="mx-auto mt-3 max-w-md text-sm leading-6 text-zinc-500">{search ? 'Tente outro nome de cliente ou projeto.' : 'Crie a entrega, adicione vídeos e explicações, personalize o link e publique para o cliente.'}</p>{!search && <Button onClick={() => setDraft(freshDelivery())} variant="outline" className="mt-7 gap-2 rounded-xl border-white/15 bg-transparent"><Plus size={16} /> Criar primeira entrega</Button>}</div>}
       <div className="mt-8 flex items-start gap-3 rounded-xl border border-white/5 px-5 py-4 text-xs leading-5 text-zinc-500"><Sparkles size={16} className="mt-0.5 shrink-0 text-[#b7dca0]/70" /><p><span className="text-zinc-300">Entregas publicadas no seu domínio.</span> Vídeos e textos ficam salvos online. O cliente acessa sem login pelo link enviado. Qualquer pessoa com esse endereço poderá visualizar; para interromper novos acessos à página, use “Tirar do ar”. Links de vídeo já abertos expiram em até 6 horas.</p></div>
     </main>
-    {draft && <DeliveryEditor key={draft.id} draft={draft} onChange={setDraft} onClose={() => setDraft(null)} onPreview={() => setPreview(draft)} onSave={save} busy={busy} progress={progress} />}
+    {draft && <DeliveryEditor key={draft.id} draft={draft} onChange={setDraft} onClose={() => setDraft(null)} onPreview={() => setPreview(draft)} onSave={save} onCancel={busy && progress.includes(' — ') ? () => processingController.current?.abort() : undefined} busy={busy} progress={progress} />}
     <Dialog open={!!preview} onOpenChange={open => { if (!open) setPreview(null); }}><DialogContent className="max-h-[94vh] max-w-6xl overflow-y-auto border-white/10 bg-[#0b0d10] p-0"><DialogHeader className="sr-only"><DialogTitle>Prévia da entrega para o cliente</DialogTitle></DialogHeader>{preview && <ClientDeliveryView delivery={preview} />}</DialogContent></Dialog>
     <Dialog open={!!publishedDelivery} onOpenChange={open => { if (!open) setPublishedDelivery(null); }}><DialogContent className="max-w-lg border-white/10 bg-[#111419] text-zinc-100"><DialogHeader><Globe className="mb-4 text-[#b7dca0]" size={30} /><DialogTitle className="text-2xl">Sua entrega está no ar.</DialogTitle></DialogHeader><p className="text-sm leading-6 text-zinc-400">Envie este link ao cliente. A página abre sem login, com todos os vídeos e explicações.</p>{publishedDelivery && <><Input readOnly aria-label="Link da entrega publicada" value={deliveryLink(publishedDelivery)} className="border-white/10 bg-[#0b0d10] text-xs text-[#b7dca0]" onFocus={event => event.target.select()} /><div className="flex gap-3"><Button className="flex-1 gap-2 bg-[#b7dca0] text-[#182215] hover:bg-[#c8e8b4]" onClick={() => copyLink(publishedDelivery)}><Copy size={15} /> Copiar link</Button><Button variant="outline" className="gap-2 border-white/10 bg-transparent" asChild><a href={deliveryLink(publishedDelivery)} target="_blank" rel="noopener noreferrer">Abrir <ExternalLink size={15} /></a></Button></div></>}</DialogContent></Dialog>
   </div>;
