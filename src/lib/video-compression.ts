@@ -99,21 +99,22 @@ export async function prepareDeliveryVideo(video: Blob, fileName: string, onProg
     const source = await inspect(ffmpeg, '/source/original');
     sourceDuration = source.duration;
     const totalBitrate = Math.floor(TARGET_BYTES * 8 / source.duration * 0.96);
-    const audioBitrate = source.audio ? Math.min(96000, Math.max(24000, Math.floor(totalBitrate * 0.15))) : 0;
-    let videoBitrate = Math.min(4_000_000, totalBitrate - audioBitrate);
+    const audioBitrate = source.audio ? Math.min(64000, Math.max(24000, Math.floor(totalBitrate * 0.15))) : 0;
+    let videoBitrate = Math.min(700_000, totalBitrate - audioBitrate);
     if (videoBitrate < 24000) throw new Error('Este vídeo é longo demais para caber no limite atual sem tornar a imagem ilegível. Divida em capítulos ou use um serviço de processamento de vídeo no servidor. O vídeo não foi cortado.');
 
     for (attempt = 0; attempt < 3; attempt++) {
       checkAbort(signal);
-      const maxEdge = videoBitrate < 350000 ? 640 : videoBitrate < 800000 ? 960 : 1280;
+      const maxEdge = videoBitrate < 250000 ? 640 : 854;
       onProgress?.(`Compactando${attempt ? ' — ajuste de tamanho' : ''}: 0%`);
+      // Drop extra frames before scaling to avoid resizing frames that will not be encoded.
       // No -t, -to, -fs or -shortest: compress the full timeline, never truncate it to satisfy the size limit.
       const code = await ffmpeg.exec([
         '-xerror', '-i', '/source/original', '-map', '0:v:0', '-map', '0:a:0?',
-        '-vf', `scale=w='min(${maxEdge},iw)':h='min(${maxEdge},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2`,
-        '-c:v', 'libx264', '-preset', 'veryfast', '-threads', '1', '-pix_fmt', 'yuv420p', '-r', '30',
+        '-vf', `fps=20,scale=w='min(${maxEdge},iw)':h='min(${maxEdge},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2:flags=fast_bilinear`,
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '1', '-pix_fmt', 'yuv420p',
         '-b:v', String(Math.floor(videoBitrate)), '-maxrate', String(Math.floor(videoBitrate * 1.2)), '-bufsize', String(Math.floor(videoBitrate * 2)),
-        '-c:a', 'aac', '-b:a', String(audioBitrate || 96000), '-ac', '2', '-movflags', '+faststart', '-map_metadata', '-1', 'delivery.mp4',
+        '-c:a', 'aac', '-b:a', String(audioBitrate || 64000), '-ac', '2', '-movflags', '+faststart', '-map_metadata', '-1', 'delivery.mp4',
       ]);
       checkAbort(signal);
       if (code !== 0) throw new Error('A conversão não foi concluída. O vídeo original foi mantido; tente novamente em um computador com mais memória.');
