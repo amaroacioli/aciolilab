@@ -17,17 +17,47 @@ export function releaseVideoCompressor() {
 function checkAbort(signal?: AbortSignal) {
   if (signal?.aborted) throw new DOMException('Processamento cancelado.', 'AbortError');
 }
-async function inspect(ffmpeg: FFmpeg, input: string, output: string): Promise<{ duration: number; videoDuration: number; audioDuration: number; audio: boolean }> {
-  const code = await ffmpeg.ffprobe(['-v', 'error', '-show_entries', 'format=duration:stream=codec_type,duration', '-of', 'json', input, '-o', output]);
-  if (code !== 0) throw new Error('Não foi possível ler a duração deste vídeo. O original foi mantido.');
-  const data = await ffmpeg.readFile(output, 'utf8');
-  const info: MediaInfo = JSON.parse(data as string);
-  const durations = [info.format?.duration, ...(info.streams || []).map(stream => stream.duration)].map(Number).filter(value => Number.isFinite(value) && value > 0);
-  if (!durations.length || !info.streams?.some(stream => stream.codec_type === 'video')) throw new Error('Não foi possível identificar um vídeo válido com duração completa.');
-  const duration = Math.max(...durations);
-  const videoDuration = Number(info.streams.find(stream => stream.codec_type === 'video')?.duration);
-  const audioDuration = Number(info.streams.find(stream => stream.codec_type === 'audio')?.duration);
-  return { duration, videoDuration: Number.isFinite(videoDuration) && videoDuration > 0 ? videoDuration : duration, audioDuration: Number.isFinite(audioDuration) && audioDuration > 0 ? audioDuration : 0, audio: info.streams.some(stream => stream.codec_type === 'audio') };
+async function inspect(ffmpeg: FFmpeg, input: string): Promise<{ duration: number; videoDuration: number; audioDuration: number; audio: boolean }> {
+  const stdout: string[] = [];
+  const diagnostics: string[] = [];
+  const capture = ({ type, message }: { type: string; message: string }) => {
+    if (type === 'stdout') stdout.push(message);
+    diagnostics.push(message);
+    if (diagnostics.length > 80) diagnostics.shift();
+  };
+  ffmpeg.on('log', capture);
+  try {
+    // Read JSON from stdout. WASM exit status is not a reliable indication that metadata was produced.
+    try {
+      await ffmpeg.ffprobe(['-v', 'error', '-show_entries', 'format=duration:stream=codec_type,duration', '-of', 'json', input]);
+    } catch (error) {
+      if (!ffmpeg.loaded) throw error;
+      diagnostics.push(error instanceof Error ? error.message : String(error));
+    }
+    let info: MediaInfo | undefined;
+    try { info = JSON.parse(stdout.join('\n')); } catch { /* Some WASM builds only expose probe metadata through FFmpeg stderr. */ }
+    const durations = [info?.format?.duration, ...(info?.streams || []).map(stream => stream.duration)].map(Number).filter(value => Number.isFinite(value) && value > 0);
+    if (durations.length && info?.streams?.some(stream => stream.codec_type === 'video')) {
+      const duration = Math.max(...durations);
+      const videoDuration = Number(info.streams.find(stream => stream.codec_type === 'video')?.duration);
+      const audioDuration = Number(info.streams.find(stream => stream.codec_type === 'audio')?.duration);
+      return { duration, videoDuration: Number.isFinite(videoDuration) && videoDuration > 0 ? videoDuration : duration, audioDuration: Number.isFinite(audioDuration) && audioDuration > 0 ? audioDuration : 0, audio: info.streams.some(stream => stream.codec_type === 'audio') };
+    }
+
+    // With no output file, FFmpeg reports metadata and exits nonzero by design; it does not encode or cut the video.
+    diagnostics.length = 0;
+    await ffmpeg.exec(['-hide_banner', '-loglevel', 'info', '-i', input]);
+    const report = diagnostics.join('\n');
+    const match = report.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/i);
+    const duration = match ? Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) : 0;
+    if (duration > 0 && /Stream\s+#.*Video:/i.test(report)) {
+      return { duration, videoDuration: duration, audioDuration: 0, audio: /Stream\s+#.*Audio:/i.test(report) };
+    }
+    const detail = diagnostics.filter(line => /error|invalid|failed|not found|denied|moov|unsupported|could not/i.test(line)).slice(-3).join(' ').slice(0, 450);
+    throw new Error(`O compactador não conseguiu abrir o vídeo para ler os metadados.${detail ? ` Detalhe técnico: ${detail}` : ' Nenhuma duração válida foi encontrada no arquivo.'} O original não foi alterado.`);
+  } finally {
+    ffmpeg.off('log', capture);
+  }
 }
 
 export async function prepareDeliveryVideo(video: Blob, fileName: string, onProgress?: (message: string) => void, signal?: AbortSignal): Promise<PreparedVideo> {
@@ -66,7 +96,7 @@ export async function prepareDeliveryVideo(video: Blob, fileName: string, onProg
     // WORKERFS reads the original Blob in chunks instead of copying a large iPhone file into WASM memory.
     const mounted = await ffmpeg.mount(FFFSType.WORKERFS, { blobs: [{ name: 'original', data: video }] }, '/source');
     if (!mounted) throw new Error('O navegador não conseguiu abrir o vídeo para compactação. Tente em um computador.');
-    const source = await inspect(ffmpeg, '/source/original', 'source-info.json');
+    const source = await inspect(ffmpeg, '/source/original');
     sourceDuration = source.duration;
     const totalBitrate = Math.floor(TARGET_BYTES * 8 / source.duration * 0.96);
     const audioBitrate = source.audio ? Math.min(96000, Math.max(24000, Math.floor(totalBitrate * 0.15))) : 0;
@@ -88,7 +118,7 @@ export async function prepareDeliveryVideo(video: Blob, fileName: string, onProg
       checkAbort(signal);
       if (code !== 0) throw new Error('A conversão não foi concluída. O vídeo original foi mantido; tente novamente em um computador com mais memória.');
       onProgress?.('Verificando duração integral e áudio...');
-      const resultInfo = await inspect(ffmpeg, 'delivery.mp4', 'result-info.json');
+      const resultInfo = await inspect(ffmpeg, 'delivery.mp4');
       if (resultInfo.duration < source.duration - 1 || resultInfo.duration > source.duration + 2 || resultInfo.videoDuration < source.videoDuration - 1 || (source.audio && (!resultInfo.audio || (source.audioDuration > 0 && resultInfo.audioDuration < source.audioDuration - 1)))) throw new Error('A verificação detectou diferença de duração ou ausência de áudio. O arquivo não será enviado.');
       const bytes = await ffmpeg.readFile('delivery.mp4');
       if (typeof bytes === 'string') throw new Error('Não foi possível ler o vídeo compactado.');
@@ -114,9 +144,7 @@ export async function prepareDeliveryVideo(video: Blob, fileName: string, onProg
     ffmpeg.off('progress', progress);
     if (ffmpeg.loaded && engine === ffmpeg) {
       try { await ffmpeg.unmount('/source'); await ffmpeg.deleteDir('/source'); } catch { /* Mount may not have completed. */ }
-      for (const path of ['source-info.json', 'result-info.json', 'delivery.mp4']) {
-        try { await ffmpeg.deleteFile(path); } catch { /* Files are not created if conversion fails early. */ }
-      }
+      try { await ffmpeg.deleteFile('delivery.mp4'); } catch { /* Output is not created if conversion fails early. */ }
     }
   }
 }
