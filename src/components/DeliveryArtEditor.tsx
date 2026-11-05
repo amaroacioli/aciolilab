@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { ArrowDown, ArrowUp, ImagePlus, Instagram, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -9,12 +10,17 @@ import { emptyInstagramProfile, inspectAvatar } from '@/lib/delivery-art';
 import { inspectSocialFile, SocialFormat, socialFormats } from '@/lib/social-media';
 import DeliveryImage from '@/components/DeliveryImage';
 import InstagramPreviewButton from '@/components/InstagramDeliveryPreview';
+import InstagramConnection from '@/components/InstagramConnection';
 
 const field = 'border-white/10 bg-[#0d1014] text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-[#b7dca0]/50';
-interface Props { draft: ClientDelivery; onChange: (draft: ClientDelivery) => void; onReading: (reading: boolean) => void }
-export default function DeliveryArtEditor({ draft, onChange, onReading }: Props) {
+interface Props { draft: ClientDelivery; onChange: (draft: ClientDelivery) => void; onReading: (reading: boolean) => void; publishing: boolean }
+export default function DeliveryArtEditor({ draft, onChange, onReading, publishing }: Props) {
+  const latest = useRef(draft);
+  latest.current = draft;
+  const locked = useRef(publishing);
+  locked.current = publishing;
   const profile = draft.instagram || emptyInstagramProfile();
-  const updateItem = (id: string, values: Partial<DeliveryItem>) => onChange({ ...draft, items: draft.items.map(item => item.id === id ? { ...item, ...values } : item) });
+  const updateItem = (id: string, values: Partial<DeliveryItem>) => { const current = latest.current; onChange({ ...current, items: current.items.map(item => item.id === id ? { ...item, ...values } : item) }); };
   const select = async (file?: File, item?: DeliveryItem, format?: SocialFormat) => {
     if (!file) return;
     onReading(true);
@@ -25,7 +31,8 @@ export default function DeliveryArtEditor({ draft, onChange, onReading }: Props)
         updateItem(item.id, { artwork: { ...item.artwork, [format]: asset } });
       } else {
         const avatar = await inspectAvatar(file);
-        onChange({ ...draft, instagram: { ...profile, avatar } });
+        const current = latest.current;
+        onChange({ ...current, instagram: { ...(current.instagram || emptyInstagramProfile()), avatar } });
       }
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Não foi possível abrir a imagem.'); }
     finally { onReading(false); }
@@ -38,7 +45,8 @@ export default function DeliveryArtEditor({ draft, onChange, onReading }: Props)
   return <div className="space-y-6">
     <section className="rounded-xl border border-[#b7dca0]/20 bg-[#b7dca0]/5 p-4 sm:p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h3 className="flex items-center gap-2 text-sm font-medium"><Instagram size={16} className="text-[#b7dca0]" /> Perfil do Instagram do cliente</h3><InstagramPreviewButton delivery={draft} /></div>
-      <p className="mb-4 text-xs leading-6 text-zinc-400">Configure antes de visualizar. O @, a foto, o nome e a bio ficam salvos nesta entrega e são recuperados ao reabrir, inclusive na página do cliente.</p>
+      <InstagramConnection deliveryId={draft.id} snapshot={profile.connectedFeed} onSnapshot={connectedFeed => { if (locked.current) return; const current = latest.current; const saved = current.instagram || emptyInstagramProfile(); onChange({ ...current, instagram: { ...saved, handle: saved.handle || connectedFeed?.username || '', connectedFeed } }); }} />
+      <p className="mb-4 text-xs leading-6 text-zinc-400">O @, a foto, o nome e a bio abaixo personalizam a simulação e ficam salvos nesta entrega. A conexão oficial fornece as imagens dos posts recentes; as novas artes aparecem primeiro na grade.</p>
       <div className="mb-4 flex items-center gap-4"><DeliveryImage asset={profile.avatar} alt="Foto do perfil do cliente" className="h-16 w-16 shrink-0 rounded-full object-cover" /><div className="min-w-0 flex-1"><Label htmlFor="delivery-avatar" className="text-xs">Foto de perfil · até 5 MB</Label><Input id="delivery-avatar" type="file" accept="image/jpeg,image/png,image/webp" className={`${field} mt-2 h-auto py-2 file:text-zinc-400`} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; void select(file); }} /></div>{profile.avatar && <Button type="button" variant="ghost" size="icon" aria-label="Remover foto de perfil" onClick={() => onChange({ ...draft, instagram: { ...profile, avatar: undefined } })}><Trash2 size={15} /></Button>}</div>
       <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label htmlFor="instagram-handle">@ do perfil</Label><Input id="instagram-handle" className={field} value={profile.handle} maxLength={30} placeholder="studio.aurora" onChange={event => onChange({ ...draft, instagram: { ...profile, handle: event.target.value.replace(/^@/, '').replace(/[^a-zA-Z0-9._]/g, '') } })} /></div><div className="space-y-2"><Label htmlFor="instagram-name">Nome exibido</Label><Input id="instagram-name" className={field} value={profile.name} maxLength={120} placeholder={draft.client || 'Studio Aurora'} onChange={event => onChange({ ...draft, instagram: { ...profile, name: event.target.value } })} /></div></div>
       <div className="mt-4 space-y-2"><Label htmlFor="instagram-bio">Bio</Label><Textarea id="instagram-bio" className={field} value={profile.bio} rows={3} maxLength={500} placeholder="Como o perfil do cliente se apresenta..." onChange={event => onChange({ ...draft, instagram: { ...profile, bio: event.target.value } })} /></div>

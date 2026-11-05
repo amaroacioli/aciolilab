@@ -124,7 +124,7 @@ export async function listDeliveries(): Promise<ClientDelivery[]> {
   const merged = local.map(draft => {
     const remote = deliveries.find(entry => entry.id === draft.id);
     const refreshAsset = (asset?: SocialAsset, online?: SocialAsset) => asset?.path && online && online.path === asset.path ? { ...asset, url: online.url, downloadUrl: online.downloadUrl } : asset;
-    const instagram = draft.instagram ? { ...draft.instagram, avatar: refreshAsset(draft.instagram.avatar, remote?.instagram?.avatar) } : undefined;
+    const instagram = draft.instagram ? { ...draft.instagram, avatar: refreshAsset(draft.instagram.avatar, remote?.instagram?.avatar), connectedFeed: remote ? remote.instagram?.connectedFeed : draft.instagram.connectedFeed } : remote?.instagram;
     return { ...draft, instagram, published: remote?.published || false, items: draft.items.map(item => {
       const online = remote?.items.find(entry => entry.id === item.id);
       return { ...item, videoUrl: remote?.items.find(video => video.videoPath && video.videoPath === item.videoPath)?.videoUrl || item.videoUrl, ...(item.artwork ? { artwork: { feed: refreshAsset(item.artwork.feed, online?.artwork?.feed), story: refreshAsset(item.artwork.story, online?.artwork?.story) } } : {}) };
@@ -177,7 +177,7 @@ export async function saveDelivery(delivery: ClientDelivery, onProgress?: (messa
     }
     checkAbort();
     const items = working.map(item => ({ id: item.id, title: item.title, description: item.description, caption: item.caption || '', videoPath: item.videoPath, fileName: item.fileName, videoSize: item.videoSize, ...(item.artwork ? { artwork: { feed: imagePayload(item.artwork.feed), story: imagePayload(item.artwork.story) } } : {}) }));
-    const profile = instagram ? { ...instagram, avatar: imagePayload(instagram.avatar) } : undefined;
+    const profile = instagram ? { handle: instagram.handle, name: instagram.name, bio: instagram.bio, avatar: imagePayload(instagram.avatar) } : undefined;
     onProgress?.(delivery.published ? 'Publicando página...' : 'Salvando rascunho online...');
     const { delivery: saved } = await request<{ delivery: ClientDelivery }>({ action: 'save', delivery: { ...delivery, instagram: profile, items, localOnly: undefined } });
     if ((delivery.type === 'artwork' && saved.type !== 'artwork') || items.some(item => item.artwork && !saved.items.find(entry => entry.id === item.id)?.artwork) || (profile && (['handle', 'name', 'bio'] as const).some(key => profile[key] !== saved.instagram?.[key]))) throw new Error('O serviço de publicação ainda não confirmou as artes e configurações do Instagram. O rascunho foi mantido para não perder seus dados.');

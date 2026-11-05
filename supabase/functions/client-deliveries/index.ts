@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.190.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.8';
 import { SignJWT, jwtVerify } from 'https://esm.sh/jose@5.9.6';
+import { instagramCacheBucket, instagramSnapshot } from '../_shared/instagram-feed.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -43,7 +44,12 @@ async function withVideoUrls(row: any) {
     return result;
   }));
   const profile = row.instagram || {};
-  const instagram = { handle: profile.handle || '', name: profile.name || '', bio: profile.bio || '', avatar: await withImageUrls(profile.avatar) };
+  let connectedFeed = null;
+  if (row.delivery_type === 'artwork' || row.items.some((item: any) => item.artwork)) {
+    try { connectedFeed = await instagramSnapshot(db, row.id); }
+    catch { console.warn('[client-deliveries] Cópia do Instagram indisponível; mantendo o conteúdo principal', { id: row.id }); }
+  }
+  const instagram = { handle: profile.handle || '', name: profile.name || '', bio: profile.bio || '', avatar: await withImageUrls(profile.avatar), connectedFeed };
   return { id: row.id, type: row.delivery_type, instagram, slug: row.slug, client: row.client, title: row.title, introduction: row.introduction, nextSteps: row.next_steps, updatedAt: row.updated_at, published: row.published, items };
 }
 
@@ -143,7 +149,11 @@ serve(async req => {
       if (!uuid.test(body.id || '')) return response({ error: 'Entrega inválida.' }, 400);
       const { error } = await db.from('client_deliveries').delete().eq('id', body.id);
       if (error) throw error;
-      for (const storageBucket of [bucket, imageBucket]) {
+      const { error: connectionError } = await db.from('delivery_instagram_connections').delete().eq('delivery_id', body.id);
+      if (connectionError) throw connectionError;
+      const { error: stateError } = await db.from('delivery_instagram_oauth_states').delete().eq('delivery_id', body.id);
+      if (stateError) throw stateError;
+      for (const storageBucket of [bucket, imageBucket, instagramCacheBucket]) {
         const { data: files, error: listError } = await db.storage.from(storageBucket).list(body.id, { limit: 1000 });
         if (listError) console.warn('[client-deliveries] Falha ao listar mídias para exclusão', listError.message);
         if (files?.length) {

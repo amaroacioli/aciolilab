@@ -70,7 +70,7 @@ export default function DeliveryEditor({ draft, onChange, onClose, onPreview, on
           <p className="mt-2 text-[11px] leading-5 text-zinc-500">De 3 a 80 caracteres. Letras, números e hífens. {draft.published ? 'Se alterar o endereço, o link anterior deixará de funcionar.' : 'O endereço só fica acessível depois de publicar.'}</p>
         </div>
         <div className="space-y-2"><Label htmlFor="delivery-intro">Mensagem de boas-vindas</Label><Textarea id="delivery-intro" className={fieldClass} value={draft.introduction} onChange={event => update({ introduction: event.target.value })} placeholder="Apresente o que foi desenvolvido e o que o cliente vai encontrar aqui." rows={3} maxLength={20000} /></div>
-        {(draft.type === 'artwork' || draft.items.some(item => item.artwork !== undefined)) && <DeliveryArtEditor draft={draft} onChange={onChange} onReading={setReading} />}
+        {(draft.type === 'artwork' || draft.items.some(item => item.artwork !== undefined)) && <DeliveryArtEditor draft={draft} onChange={onChange} onReading={setReading} publishing={publishing} />}
         <section>
           <div className="mb-4 flex items-center justify-between"><h3 className="text-sm font-medium">{draft.type === 'artwork' ? 'Orientações adicionais' : 'Conteúdo da entrega'}</h3><span className="text-xs text-zinc-500">{draft.items.length} blocos no total</span></div>
           {(draft.type !== 'artwork' || draft.items.some(hasVideo)) && <>

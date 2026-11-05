@@ -1,11 +1,25 @@
 import type { SocialAsset } from '@/lib/social-media';
 
 export type DeliveryArtwork = { feed?: SocialAsset; story?: SocialAsset };
+export interface InstagramFeedPost {
+  id: string;
+  caption: string;
+  mediaType: string;
+  timestamp: string;
+  imageUrl: string;
+}
+export interface InstagramFeedSnapshot {
+  username: string;
+  posts: InstagramFeedPost[];
+  syncedAt: string | null;
+  expired: boolean;
+}
 export interface InstagramProfile {
   handle: string;
   name: string;
   bio: string;
   avatar?: SocialAsset;
+  connectedFeed?: InstagramFeedSnapshot | null;
 }
 export const emptyInstagramProfile = (): InstagramProfile => ({ handle: '', name: '', bio: '' });
 
