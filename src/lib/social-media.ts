@@ -68,6 +68,7 @@ export async function inspectSocialFile(file: File, format: SocialFormat): Promi
   if (!['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm'].includes(file.type)) throw new Error('Use JPG, PNG, WebP, MP4 ou WebM.');
   if (!file.size || file.size > 50 * 1024 * 1024) throw new Error('Cada arquivo deve ter até 50 MB.');
   const url = URL.createObjectURL(file);
+  const expectedHeight = format === 'feed' ? 1350 : 1920;
   let width = 0;
   let height = 0;
   try {
@@ -76,6 +77,26 @@ export async function inspectSocialFile(file: File, format: SocialFormat): Promi
       image.src = url;
       try { await image.decode(); } catch { throw new Error('Não foi possível abrir a imagem. Envie um JPG, PNG ou WebP válido.'); }
       width = image.naturalWidth; height = image.naturalHeight;
+      if (width !== 1080 || height !== expectedHeight) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1080;
+        canvas.height = expectedHeight;
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Não foi possível ajustar a imagem neste navegador.');
+        const scale = Math.min(canvas.width / width, canvas.height / height);
+        const fittedWidth = width * scale;
+        const fittedHeight = height * scale;
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = 'high';
+        context.drawImage(image, (canvas.width - fittedWidth) / 2, (canvas.height - fittedHeight) / 2, fittedWidth, fittedHeight);
+        const normalized = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Não foi possível gerar a imagem ajustada. Tente novamente.')), 'image/png');
+        });
+        const fileName = `${file.name.replace(/\.[^.]+$/, '')}-${format}-1080x${expectedHeight}.png`;
+        return { file: normalized, fileName, mime: normalized.type, width: 1080, height: expectedHeight, size: normalized.size };
+      }
     } else {
       const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
         const video = document.createElement('video');
@@ -89,8 +110,7 @@ export async function inspectSocialFile(file: File, format: SocialFormat): Promi
       width = dimensions.width; height = dimensions.height;
     }
   } finally { URL.revokeObjectURL(url); }
-  const expectedHeight = format === 'feed' ? 1350 : 1920;
-  if (width !== 1080 || height !== expectedHeight) throw new Error(`O arquivo tem ${width} × ${height}px. Para ${format === 'feed' ? 'Feed' : 'Story'}, envie exatamente 1080 × ${expectedHeight}px.`);
+  if (width !== 1080 || height !== expectedHeight) throw new Error(`O vídeo tem ${width} × ${height}px. Para ${format === 'feed' ? 'Feed' : 'Story'}, envie exatamente 1080 × ${expectedHeight}px.`);
   return { file, fileName: file.name, mime: file.type, width, height, size: file.size };
 }
 

@@ -64,7 +64,7 @@ export default function DeliveryArtEditor({ draft, onChange, onReading, publishi
         <div className="mt-4 space-y-2"><Label htmlFor={`art-note-${item.id}`} className="text-xs text-zinc-400">Orientação para o cliente</Label><Textarea id={`art-note-${item.id}`} className={field} value={item.description} rows={2} maxLength={20000} placeholder="Explique a proposta ou indique quando usar esta arte." onChange={event => updateItem(item.id, { description: event.target.value })} /></div>
       </div>)}</div>
       <Button type="button" variant="outline" disabled={draft.items.length >= 100} className="mt-4 w-full gap-2 border-[#b7dca0]/30 bg-transparent text-[#b7dca0]" onClick={() => onChange({ ...draft, items: [...draft.items, { id: crypto.randomUUID(), title: '', description: '', caption: '', artwork: {} }] })}><Plus size={16} /> Adicionar arte / criativo</Button>
-      <p className="mt-3 text-xs leading-6 text-zinc-500">JPG, PNG ou WebP, até 50 MB por imagem. Cada arte pode ter Feed, Story ou ambos. Os originais são entregues sem recorte ou compressão. A grade da prévia usa a ordem dos blocos e simula o recorte do perfil; abrir o post mostra a imagem completa.</p>
+      <p className="mt-3 text-xs leading-6 text-zinc-500">JPG, PNG ou WebP, até 50 MB por imagem. Cada arte pode ter Feed, Story ou ambos. Imagens são ajustadas automaticamente para 1080 × 1350px ou 1080 × 1920px, sem cortes nem distorção e com margens brancas quando necessário. O download entrega a versão ajustada; imagens já no tamanho correto são preservadas. A grade da prévia simula o recorte do perfil; abrir o post mostra a imagem completa.</p>
     </section>
   </div>;
 }
