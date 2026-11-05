@@ -11,6 +11,7 @@ import {
 import { showSuccess, showError } from '@/utils/toast';
 import { leadService, RadarLead, isSupabaseConfigured } from '@/lib/supabase';
 import { loginDeliveryAdmin } from '@/lib/client-deliveries';
+import SocialMediaPanel from '@/components/SocialMediaPanel';
 
 // Função auxiliar para gerar UUIDs válidos no padrão RFC4122
 const generateUUID = () => {
@@ -516,6 +517,8 @@ export default function Admin() {
             </button>
           </div>
         </div>
+
+        <SocialMediaPanel />
 
         {/* ÁREA DE PRÉ-VISUALIZAÇÃO MANUAL */}
         {tempLeads && (
