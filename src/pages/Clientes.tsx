@@ -4,13 +4,14 @@ import { ArrowLeft, ArrowUpRight, Copy, ExternalLink, Eye, Film, FolderOpen, Glo
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ClientDelivery, DeliverySessionError, deleteDelivery, deliveryLink, discardLocalDeliveryDraft, hasVideo, listDeliveries, listLocalDeliveryDrafts, saveDelivery, unpublishDelivery } from '@/lib/client-deliveries';
+import { ClientDelivery, DeliverySessionError, deleteDelivery, deliveryLink, discardLocalDeliveryDraft, hasArtwork, hasVideo, listDeliveries, listLocalDeliveryDrafts, saveDelivery, unpublishDelivery } from '@/lib/client-deliveries';
 import { getActiveDeliveryDraftId, useDeliveryDraft } from '@/hooks/use-delivery-draft';
 import ClientDeliveryView from '@/components/ClientDeliveryView';
 import DeliveryEditor from '@/components/DeliveryEditor';
+import { migrateSocialDraft } from '@/lib/migrate-social-draft';
 import { toast } from 'sonner';
 
-const freshDelivery = (): ClientDelivery => ({ id: crypto.randomUUID(), client: '', title: '', slug: '', introduction: '', nextSteps: '', updatedAt: new Date().toISOString(), published: false, items: [] });
+const freshDelivery = (): ClientDelivery => ({ id: crypto.randomUUID(), type: 'video', client: '', title: '', slug: '', introduction: '', nextSteps: '', updatedAt: new Date().toISOString(), published: false, items: [] });
 
 export default function Clientes() {
   const { id } = useParams();
@@ -52,6 +53,7 @@ export default function Clientes() {
     setLoadError('');
     let entries: ClientDelivery[] = [];
     try {
+      await migrateSocialDraft().catch(() => toast.error('Não foi possível importar o rascunho da seção anterior. Ele foi preservado neste navegador.'));
       entries = await listLocalDeliveryDrafts();
       setDeliveries(entries);
       try { entries = await listDeliveries(); setDeliveries(entries); }
@@ -69,20 +71,21 @@ export default function Clientes() {
   const save = async (published: boolean) => {
     if (!draft || busy) return;
     if (!published) {
-      try { const saved = await editor.flush(); if (saved) rememberLocal(saved); toast.success('Rascunho salvo neste navegador, com os vídeos. Nenhuma compactação ou publicação foi iniciada.'); }
+      try { const saved = await editor.flush(); if (saved) rememberLocal(saved); toast.success('Rascunho salvo com mídias, legendas e configurações do perfil. Nenhuma compactação ou publicação foi iniciada.'); }
       catch (error) { reportError(error); }
       return;
     }
     if (!draft.client.trim() || !draft.title.trim()) { toast.error('Preencha o nome do cliente e o título. As alterações continuam no rascunho.'); return; }
     if (!/^[a-z0-9][a-z0-9-]{1,78}[a-z0-9]$/.test(draft.slug)) { toast.error('O endereço precisa ter de 3 a 80 caracteres: letras minúsculas, números e hífens.'); return; }
-    if (!draft.items.length || draft.items.some(item => !item.title.trim() || (!hasVideo(item) && !item.description.trim()))) { toast.error('Cada bloco precisa de título e vídeo ou explicação. Você pode continuar editando o rascunho.'); return; }
+    if (!draft.items.length || draft.items.some(item => !item.title.trim() || (item.artwork !== undefined ? !hasArtwork(item) : !hasVideo(item) && !item.description.trim()))) { toast.error('Cada bloco precisa de título e conteúdo. Nas artes, adicione pelo menos uma imagem de Feed ou Story. Seu rascunho continua disponível.'); return; }
+    if (draft.type === 'artwork' && !draft.items.some(hasArtwork)) { toast.error('Adicione pelo menos uma arte antes de publicar esta entrega de criativos.'); return; }
     setBusy(true);
     setProgress('Protegendo o rascunho antes de publicar...');
     const controller = new AbortController();
     processingController.current = controller;
     try {
       await editor.flush();
-      const saved = await saveDelivery({ ...draft, client: draft.client.trim(), title: draft.title.trim(), published }, setProgress, controller.signal, editor.checkpointItems);
+      const saved = await saveDelivery({ ...draft, client: draft.client.trim(), title: draft.title.trim(), published }, setProgress, controller.signal, editor.checkpoint);
       setDeliveries(current => [saved, ...current.filter(entry => entry.id !== saved.id)]);
       editor.clear();
       setPublishedDelivery(saved);
@@ -131,18 +134,18 @@ export default function Clientes() {
       <Link to="/admin" className="flex items-center gap-2 text-xs text-zinc-400 hover:text-white"><ArrowLeft size={14} /> Voltar ao painel</Link>
     </div></header>
     <main className="mx-auto max-w-7xl px-5 py-10 md:px-10 md:py-14">
-      <div className="mb-10 flex flex-col justify-between gap-6 md:flex-row md:items-end"><div><p className="mb-4 flex items-center gap-2 text-[10px] uppercase tracking-[0.24em] text-[#b7dca0]"><span className="h-1.5 w-1.5 rounded-full bg-[#b7dca0]" /> Relacionamento & entregas</p><h1 className="text-4xl font-medium tracking-tight md:text-5xl">Cada entrega, uma experiência<span className="text-[#b7dca0]">.</span></h1><p className="mt-4 max-w-xl text-sm leading-6 text-zinc-500">Publique uma página exclusiva no seu domínio. Textos e vídeos em edição são protegidos por rascunhos automáticos neste navegador.</p></div><Button onClick={() => editor.change(freshDelivery())} className="shrink-0 gap-2 rounded-xl bg-[#b7dca0] px-5 py-6 text-[#182215] hover:bg-[#c8e8b4]"><Plus size={17} /> Nova entrega</Button></div>
+      <div className="mb-10 flex flex-col justify-between gap-6 md:flex-row md:items-end"><div><p className="mb-4 flex items-center gap-2 text-[10px] uppercase tracking-[0.24em] text-[#b7dca0]"><span className="h-1.5 w-1.5 rounded-full bg-[#b7dca0]" /> Relacionamento & entregas</p><h1 className="text-4xl font-medium tracking-tight md:text-5xl">Cada entrega, uma experiência<span className="text-[#b7dca0]">.</span></h1><p className="mt-4 max-w-xl text-sm leading-6 text-zinc-500">Entregue vídeos ou artes com legendas e prévia do Instagram em uma página exclusiva. Mídias e configurações são protegidas por rascunhos automáticos.</p></div><Button onClick={() => editor.change(freshDelivery())} className="shrink-0 gap-2 rounded-xl bg-[#b7dca0] px-5 py-6 text-[#182215] hover:bg-[#c8e8b4]"><Plus size={17} /> Nova entrega</Button></div>
       <div className="mb-10 grid grid-cols-1 gap-3 sm:grid-cols-3">{[
         { icon: Users, label: 'Clientes atendidos', value: new Set(deliveries.map(entry => entry.client.toLocaleLowerCase())).size },
         { icon: Globe, label: 'Páginas publicadas', value: deliveries.filter(entry => entry.published).length },
-        { icon: Film, label: 'Vídeos na biblioteca', value: deliveries.reduce((sum, entry) => sum + entry.items.filter(hasVideo).length, 0) },
+        { icon: Film, label: 'Vídeos e artes', value: deliveries.reduce((sum, entry) => sum + entry.items.filter(item => hasVideo(item) || hasArtwork(item)).length, 0) },
       ].map(stat => <div key={stat.label} className="flex items-center gap-4 rounded-2xl border border-white/[0.07] bg-[#111419] px-6 py-5"><div className="rounded-xl border border-white/5 bg-white/[0.03] p-3 text-zinc-500"><stat.icon size={18} /></div><div><p className="text-2xl font-medium">{String(stat.value).padStart(2, '0')}</p><p className="mt-1 text-xs text-zinc-500">{stat.label}</p></div></div>)}</div>
       <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div className="flex items-center gap-3"><h2 className="text-lg font-medium">Suas entregas</h2><span className="rounded-md bg-white/5 px-2 py-1 text-[10px] text-zinc-500">{deliveries.length}</span></div><div className="relative sm:w-72"><Search size={15} className="absolute left-3 top-3 text-zinc-600" /><Input aria-label="Buscar cliente ou projeto" value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar cliente ou projeto..." className="rounded-xl border-white/10 bg-[#0d1014] pl-9 text-zinc-100 placeholder:text-zinc-600" /></div></div>
       {loadError && <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-400/20 p-4 text-sm text-red-400"><span>{loadError}</span><Button variant="outline" onClick={load}>Tentar novamente</Button></div>}
       {loading && !filtered.length ? <div className="flex justify-center py-24"><Loader2 className="animate-spin text-[#b7dca0]" /></div> : filtered.length ? <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">{filtered.map(delivery => <article key={delivery.id} className="rounded-2xl border border-white/[0.08] bg-[#111419] p-6 transition-colors hover:border-[#b7dca0]/30">
         <div className="mb-8 flex items-center justify-between"><span className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#b7dca0]/15 bg-[#b7dca0]/5 text-lg text-[#b7dca0]">{delivery.client.slice(0, 2).toUpperCase() || 'RA'}</span><span className={`rounded-full px-3 py-1 text-[10px] ${delivery.localOnly ? 'bg-amber-400/10 text-amber-300' : delivery.published ? 'bg-[#b7dca0]/10 text-[#b7dca0]' : 'bg-white/5 text-zinc-500'}`}>{delivery.localOnly ? delivery.published ? 'Alterações em rascunho' : 'Rascunho automático' : delivery.published ? 'Publicada' : 'Rascunho online'}</span></div>
-        <p className="text-[10px] uppercase tracking-[0.17em] text-[#b7dca0]">{delivery.client || 'Cliente não preenchido'}</p><h3 className="mb-3 mt-2 break-words text-xl font-medium">{delivery.title || 'Entrega sem título'}</h3><p className="line-clamp-2 min-h-10 text-xs leading-5 text-zinc-500">{delivery.introduction || (delivery.localOnly ? 'Continue de onde parou. Textos e vídeos estão guardados neste navegador.' : 'Vídeos e explicações preparados para este cliente.')}</p>
-        <div className="my-4 flex justify-between text-[11px] text-zinc-500"><span>{delivery.items.length} blocos · {delivery.items.filter(hasVideo).length} vídeos</span><span>{new Date(delivery.updatedAt).toLocaleDateString('pt-BR')}</span></div>
+        <p className="text-[10px] uppercase tracking-[0.17em] text-[#b7dca0]">{delivery.client || 'Cliente não preenchido'} · {delivery.type === 'artwork' ? 'Artes / criativos' : 'Vídeos'}</p><h3 className="mb-3 mt-2 break-words text-xl font-medium">{delivery.title || 'Entrega sem título'}</h3><p className="line-clamp-2 min-h-10 text-xs leading-5 text-zinc-500">{delivery.introduction || (delivery.localOnly ? 'Continue de onde parou. Mídias, textos e configurações estão guardados neste navegador.' : 'Conteúdo preparado exclusivamente para este cliente.')}</p>
+        <div className="my-4 flex flex-wrap justify-between gap-2 text-[11px] text-zinc-500"><span>{delivery.items.filter(hasVideo).length} vídeos · {delivery.items.filter(hasArtwork).length} artes · {delivery.items.length} blocos</span><span>{new Date(delivery.updatedAt).toLocaleDateString('pt-BR')}</span></div>
         <div className="mb-4 rounded-lg border border-white/5 bg-[#0b0d10] px-3 py-2"><p className="truncate text-[11px] text-zinc-500">{delivery.slug ? `/entregas/${delivery.slug}` : 'Endereço ainda não definido'}</p></div>
         <div className="flex items-center gap-2 border-t border-white/5 pt-4"><Button variant="outline" size="sm" className="flex-1 gap-2 border-white/10 bg-transparent text-xs" onClick={() => editor.change(delivery)}>{delivery.localOnly ? 'Continuar rascunho' : 'Gerenciar'} <ArrowUpRight size={13} /></Button><Button variant="ghost" size="icon" aria-label="Visualizar prévia" title="Visualizar prévia" onClick={() => setPreview(delivery)}><Eye size={16} /></Button><Button variant="ghost" size="icon" disabled={!delivery.published || delivery.localOnly} title="Copiar link publicado" aria-label="Copiar link publicado" onClick={() => copyLink(delivery)}><Copy size={16} /></Button><Button variant="ghost" size="icon" disabled={!!workingId} aria-label={delivery.localOnly ? 'Descartar rascunho local' : 'Excluir entrega'} className="text-zinc-600 hover:text-red-400" onClick={() => remove(delivery)}>{workingId === delivery.id ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}</Button></div>
         {delivery.published && !delivery.localOnly && <div className="mt-3 flex items-center justify-between"><a href={deliveryLink(delivery)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[11px] text-[#b7dca0]">Abrir página <ExternalLink size={12} /></a><button disabled={!!workingId} onClick={() => unpublish(delivery)} className="text-[11px] text-zinc-600 hover:text-zinc-300">Tirar do ar</button></div>}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ClientDelivery, DeliveryItem, saveLocalDeliveryDraft } from '@/lib/client-deliveries';
+import { ClientDelivery, saveLocalDeliveryDraft } from '@/lib/client-deliveries';
 
 const ACTIVE_DRAFT = 'acioli_active_delivery_draft';
 export function getActiveDeliveryDraftId() {
@@ -50,9 +50,9 @@ export function useDeliveryDraft() {
     await pending.current.catch(() => undefined);
     return persist(latest.current);
   };
-  const checkpointItems = async (items: DeliveryItem[]) => {
+  const checkpoint = async (changes: Partial<ClientDelivery>) => {
     if (!latest.current) return;
-    const next = { ...latest.current, items };
+    const next = { ...latest.current, ...changes };
     latest.current = next;
     setDraft(next);
     await persist(next);
@@ -76,5 +76,5 @@ export function useDeliveryDraft() {
     return () => window.removeEventListener('beforeunload', beforeUnload);
   }, []);
 
-  return { draft, change, flush, checkpointItems, clear, close, hasOpenDraft: () => latest.current !== null, status, error, savedAt };
+  return { draft, change, flush, checkpoint, clear, close, hasOpenDraft: () => latest.current !== null, status, error, savedAt };
 }

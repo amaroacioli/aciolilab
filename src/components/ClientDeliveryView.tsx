@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ArrowDown, Check, FileText, Play, Sparkles } from 'lucide-react';
-import { ClientDelivery, DeliveryItem, hasVideo } from '@/lib/client-deliveries';
+import { ArrowDown, Check, FileText, ImagePlus, Play, Sparkles } from 'lucide-react';
+import { ClientDelivery, DeliveryItem, hasArtwork, hasVideo } from '@/lib/client-deliveries';
+import DeliveryArtworkView from '@/components/DeliveryArtworkView';
+import InstagramPreviewButton from '@/components/InstagramDeliveryPreview';
 
 function DeliveryVideo({ item }: { item: DeliveryItem }) {
   const [url, setUrl] = useState(item.videoUrl || '');
@@ -36,15 +38,17 @@ export default function ClientDeliveryView({ delivery }: { delivery: ClientDeliv
           <span className="flex items-center gap-2"><Check size={14} className="text-[#b7dca0]" /> {delivery.items.length} {delivery.items.length === 1 ? 'entrega organizada' : 'entregas organizadas'}</span>
           <a href="#entregas" className="flex items-center gap-2 text-zinc-300">Explore sua entrega <ArrowDown size={14} /></a>
         </div>
+        {(delivery.type === 'artwork' || delivery.items.some(hasArtwork)) && <div className="mt-6"><InstagramPreviewButton delivery={delivery} /></div>}
       </div>
       <div id="entregas" className="space-y-6 scroll-mt-6">
         {delivery.items.map((item, index) => <section key={item.id} className="overflow-hidden rounded-2xl border border-white/10 bg-[#111419] p-5 md:p-8">
           <div className="mb-6 flex items-start gap-4">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 text-sm text-[#b7dca0]">{String(index + 1).padStart(2, '0')}</span>
-            <div><p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-zinc-500">{hasVideo(item) ? 'Apresentação em vídeo' : 'Guia da entrega'}</p><h2 className="break-words text-xl font-medium md:text-2xl">{item.title}</h2></div>
-            <span className="ml-auto hidden text-zinc-600 sm:block">{hasVideo(item) ? <Play size={18} /> : <FileText size={18} />}</span>
+            <div><p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-zinc-500">{hasArtwork(item) ? 'Arte / criativo para redes sociais' : hasVideo(item) ? 'Apresentação em vídeo' : 'Guia da entrega'}</p><h2 className="break-words text-xl font-medium md:text-2xl">{item.title}</h2></div>
+            <span className="ml-auto hidden text-zinc-600 sm:block">{hasArtwork(item) ? <ImagePlus size={18} /> : hasVideo(item) ? <Play size={18} /> : <FileText size={18} />}</span>
           </div>
           <DeliveryVideo item={item} />
+          {hasArtwork(item) && <DeliveryArtworkView item={item} />}
           {item.description && <div className="mt-6 whitespace-pre-wrap text-sm leading-7 text-zinc-400">{item.description}</div>}
         </section>)}
       </div>

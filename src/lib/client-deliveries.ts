@@ -1,10 +1,14 @@
 import { supabase } from '@/integrations/supabase/client';
 import { prepareDeliveryVideo, releaseVideoCompressor } from '@/lib/video-compression';
+import { DeliveryArtwork, InstagramProfile, imagePayload } from '@/lib/delivery-art';
+import type { SocialAsset } from '@/lib/social-media';
 
 export interface DeliveryItem {
   id: string;
   title: string;
   description: string;
+  artwork?: DeliveryArtwork;
+  caption?: string;
   video?: Blob;
   videoPrepared?: boolean;
   videoPath?: string;
@@ -23,10 +27,13 @@ export interface ClientDelivery {
   updatedAt: string;
   published: boolean;
   localOnly?: boolean;
+  type?: 'video' | 'artwork';
+  instagram?: InstagramProfile;
   items: DeliveryItem[];
 }
 
 export const hasVideo = (item: DeliveryItem) => !!(item.video || item.videoPath || item.videoUrl);
+export const hasArtwork = (item: DeliveryItem) => !!(item.artwork?.feed || item.artwork?.story);
 export const normalizeSlug = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
 export const deliveryLink = (delivery: ClientDelivery) => new URL(`/entregas/${delivery.slug}`, window.location.origin).href;
 export class DeliverySessionError extends Error {}
@@ -77,7 +84,7 @@ export function saveLocalDeliveryDraft(delivery: ClientDelivery): Promise<Client
       tx.oncomplete = () => { db.close(); resolve(snapshot); };
       tx.onabort = () => {
         db.close();
-        reject(new Error(tx.error?.name === 'QuotaExceededError' ? 'O navegador está sem espaço para guardar o vídeo. O rascunho mais recente não foi salvo; não feche esta janela.' : 'Não foi possível salvar o rascunho neste navegador. Não feche esta janela e tente salvar novamente.'));
+        reject(new Error(tx.error?.name === 'QuotaExceededError' ? 'O navegador está sem espaço para guardar os arquivos. O rascunho mais recente não foi salvo; não feche esta janela.' : 'Não foi possível salvar o rascunho neste navegador. Não feche esta janela e tente salvar novamente.'));
       };
     });
   });
@@ -116,39 +123,64 @@ export async function listDeliveries(): Promise<ClientDelivery[]> {
   const local = await listLocalDeliveryDrafts();
   const merged = local.map(draft => {
     const remote = deliveries.find(entry => entry.id === draft.id);
-    return { ...draft, published: remote?.published || false, items: draft.items.map(item => ({ ...item, videoUrl: remote?.items.find(video => video.videoPath && video.videoPath === item.videoPath)?.videoUrl || item.videoUrl })) };
+    const refreshAsset = (asset?: SocialAsset, online?: SocialAsset) => asset?.path && online && online.path === asset.path ? { ...asset, url: online.url, downloadUrl: online.downloadUrl } : asset;
+    const instagram = draft.instagram ? { ...draft.instagram, avatar: refreshAsset(draft.instagram.avatar, remote?.instagram?.avatar) } : undefined;
+    return { ...draft, instagram, published: remote?.published || false, items: draft.items.map(item => {
+      const online = remote?.items.find(entry => entry.id === item.id);
+      return { ...item, videoUrl: remote?.items.find(video => video.videoPath && video.videoPath === item.videoPath)?.videoUrl || item.videoUrl, ...(item.artwork ? { artwork: { feed: refreshAsset(item.artwork.feed, online?.artwork?.feed), story: refreshAsset(item.artwork.story, online?.artwork?.story) } } : {}) };
+    }) };
   });
   return [...merged, ...deliveries.filter(remote => !local.some(draft => draft.id === remote.id))].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export async function saveDelivery(delivery: ClientDelivery, onProgress?: (message: string) => void, signal?: AbortSignal, onCheckpoint?: (items: DeliveryItem[]) => Promise<void>): Promise<ClientDelivery> {
-  const items: DeliveryItem[] = [];
-  const working = delivery.items.map(item => ({ ...item }));
+export async function saveDelivery(delivery: ClientDelivery, onProgress?: (message: string) => void, signal?: AbortSignal, onCheckpoint?: (changes: Partial<ClientDelivery>) => Promise<void>): Promise<ClientDelivery> {
+  const working = delivery.items.map(item => ({ ...item, ...(item.artwork ? { artwork: { ...item.artwork } } : {}) }));
+  let instagram = delivery.instagram ? { ...delivery.instagram } : undefined;
   const checkAbort = () => { if (signal?.aborted) throw new DOMException('Processamento cancelado.', 'AbortError'); };
+  const uploadImage = async (asset: SocialAsset, format: 'feed' | 'story' | 'avatar') => {
+    checkAbort();
+    if (!asset.file || asset.path) return asset;
+    onProgress?.(`Enviando ${format === 'avatar' ? 'foto do perfil' : `arte de ${format}`}...`);
+    const { path, token } = await request<{ path: string; token: string }>({ action: 'upload-image', id: delivery.id, format, mime: asset.mime });
+    const { error } = await supabase.storage.from('client-delivery-images').uploadToSignedUrl(path, token, asset.file, { contentType: asset.mime });
+    if (error) throw new Error(`Falha ao enviar ${asset.fileName}: ${error.message}`);
+    return { ...asset, path };
+  };
   try {
-    for (const [index, item] of delivery.items.entries()) {
+    if (instagram?.avatar) {
+      instagram = { ...instagram, avatar: await uploadImage(instagram.avatar, 'avatar') };
+      await onCheckpoint?.({ instagram });
+    }
+    for (const [index, original] of delivery.items.entries()) {
       checkAbort();
-      if (item.video && !item.videoPath) {
+      for (const format of ['feed', 'story'] as const) {
+        const asset = working[index].artwork?.[format];
+        if (asset) {
+          working[index] = { ...working[index], artwork: { ...working[index].artwork, [format]: await uploadImage(asset, format) } };
+          await onCheckpoint?.({ items: [...working] });
+        }
+      }
+      if (original.video && !original.videoPath) {
         const label = `Vídeo ${index + 1}/${delivery.items.length}`;
-        const prepared = item.videoPrepared ? { video: item.video, fileName: item.fileName || 'video.mp4', originalSize: item.video.size } : await prepareDeliveryVideo(item.video, item.fileName || 'video.mp4', message => onProgress?.(`${label} — ${message}`), signal);
-        working[index] = { ...item, video: prepared.video, videoPrepared: true, fileName: prepared.fileName, videoSize: prepared.video.size };
-        await onCheckpoint?.([...working]);
+        const prepared = original.videoPrepared ? { video: original.video, fileName: original.fileName || 'video.mp4', originalSize: original.video.size } : await prepareDeliveryVideo(original.video, original.fileName || 'video.mp4', message => onProgress?.(`${label} — ${message}`), signal);
+        working[index] = { ...working[index], video: prepared.video, videoPrepared: true, fileName: prepared.fileName, videoSize: prepared.video.size };
+        await onCheckpoint?.({ items: [...working] });
         checkAbort();
         const extension = prepared.video.type === 'video/mp4' ? 'mp4' : prepared.video.type === 'video/webm' ? 'webm' : prepared.video.type === 'video/ogg' ? 'ogg' : 'mov';
         onProgress?.(`Enviando vídeo ${index + 1} de ${delivery.items.length} (${(prepared.originalSize / 1024 / 1024).toFixed(1)} → ${(prepared.video.size / 1024 / 1024).toFixed(1)} MB)...`);
         const { path, token } = await request<{ path: string; token: string }>({ action: 'upload', id: delivery.id, extension });
         const { error } = await supabase.storage.from('client-delivery-videos').uploadToSignedUrl(path, token, prepared.video, { contentType: prepared.video.type });
-        if (error) throw new Error(`Falha ao enviar ${item.fileName || item.title}: ${error.message}`);
+        if (error) throw new Error(`Falha ao enviar ${original.fileName || original.title}: ${error.message}`);
         working[index] = { ...working[index], videoPath: path };
-        await onCheckpoint?.([...working]);
-        items.push({ id: item.id, title: item.title, description: item.description, videoPath: path, fileName: prepared.fileName, videoSize: prepared.video.size });
-      } else {
-        items.push({ id: item.id, title: item.title, description: item.description, videoPath: item.videoPath, fileName: item.fileName, videoSize: item.videoSize });
+        await onCheckpoint?.({ items: [...working] });
       }
     }
     checkAbort();
+    const items = working.map(item => ({ id: item.id, title: item.title, description: item.description, caption: item.caption || '', videoPath: item.videoPath, fileName: item.fileName, videoSize: item.videoSize, ...(item.artwork ? { artwork: { feed: imagePayload(item.artwork.feed), story: imagePayload(item.artwork.story) } } : {}) }));
+    const profile = instagram ? { ...instagram, avatar: imagePayload(instagram.avatar) } : undefined;
     onProgress?.(delivery.published ? 'Publicando página...' : 'Salvando rascunho online...');
-    const { delivery: saved } = await request<{ delivery: ClientDelivery }>({ action: 'save', delivery: { ...delivery, items, localOnly: undefined } });
+    const { delivery: saved } = await request<{ delivery: ClientDelivery }>({ action: 'save', delivery: { ...delivery, instagram: profile, items, localOnly: undefined } });
+    if ((delivery.type === 'artwork' && saved.type !== 'artwork') || items.some(item => item.artwork && !saved.items.find(entry => entry.id === item.id)?.artwork) || (profile && (['handle', 'name', 'bio'] as const).some(key => profile[key] !== saved.instagram?.[key]))) throw new Error('O serviço de publicação ainda não confirmou as artes e configurações do Instagram. O rascunho foi mantido para não perder seus dados.');
     await discardLocalDeliveryDraft(delivery.id).catch(error => console.warn('[client-deliveries] Página salva, mas a limpeza do rascunho local falhou', error));
     return saved;
   } finally { releaseVideoCompressor(); }
