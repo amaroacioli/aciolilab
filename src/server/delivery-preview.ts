@@ -45,10 +45,10 @@ export default async function deliveryPreview(req: PreviewRequest, res: PreviewR
       res.status(200).send(cover);
       return;
     }
-    const title = escapeHtml(delivery.title);
+    const title = escapeHtml(`Acioli | ${delivery.title.replace(/^(?:Acioli\s*\|\s*)+/i, '')}`);
     const description = escapeHtml(`Entrega exclusiva para ${delivery.client}`);
     const canonical = `${siteOrigin}/entregas/${slug}`;
-    const image = escapeHtml(`${siteOrigin}/api/delivery-preview?slug=${slug}&previewImage=1&v=${encodeURIComponent(delivery.updatedAt || '1')}`);
+    const image = escapeHtml(`${siteOrigin}/api/delivery-preview?slug=${slug}&previewImage=1&v=profile-2-${encodeURIComponent(delivery.updatedAt || '1')}`);
     const tags = `<title>${title}</title>
 <meta name="robots" content="noindex, nofollow, noarchive" />
 <meta name="description" content="${description}" />
@@ -59,10 +59,10 @@ export default async function deliveryPreview(req: PreviewRequest, res: PreviewR
 <meta property="og:image" content="${image}" />
 <meta property="og:image:secure_url" content="${image}" />
 <meta property="og:image:type" content="image/jpeg" />
-<meta property="og:image:width" content="1200" />
-<meta property="og:image:height" content="630" />
-<meta property="og:image:alt" content="${title} — ${description}" />
-<meta name="twitter:card" content="summary_large_image" />
+<meta property="og:image:width" content="800" />
+<meta property="og:image:height" content="800" />
+<meta property="og:image:alt" content="Foto de ${escapeHtml(delivery.client)}" />
+<meta name="twitter:card" content="summary" />
 <meta name="twitter:title" content="${title}" />
 <meta name="twitter:description" content="${description}" />
 <meta name="twitter:image" content="${image}" />`;
