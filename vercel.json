@@ -2,6 +2,17 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     {
+      "source": "/entregas/:slug",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(WhatsApp|Whatsapp|whatsapp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|TelegramBot|Discordbot|Slackbot).*"
+        }
+      ],
+      "destination": "/api/delivery-preview?slug=:slug"
+    },
+    {
       "source": "/copyacioli",
       "destination": "/copyacioli.html"
     },
