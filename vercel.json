@@ -1,14 +1,15 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "functions": {
-    "api/delivery-preview.ts": {
-      "includeFiles": "dist/index.html",
-      "maxDuration": 60
-    }
-  },
   "rewrites": [
     {
       "source": "/entregas/:slug",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(WhatsApp|Whatsapp|whatsapp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|TelegramBot|Discordbot|Slackbot).*"
+        }
+      ],
       "destination": "/api/delivery-preview?slug=:slug"
     },
     {

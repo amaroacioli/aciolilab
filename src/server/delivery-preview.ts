@@ -1,7 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { deliveryCover } from './delivery-cover';
 
 const supabase = createClient(
   'https://wnrmxusdetjgjtaohlkc.supabase.co',
@@ -41,6 +38,7 @@ export default async function deliveryPreview(req: PreviewRequest, res: PreviewR
     }
     const delivery = data.delivery;
     if (req.query.previewImage === '1') {
+      const { deliveryCover } = await import('./delivery-cover.js');
       const cover = await deliveryCover(delivery);
       res.setHeader('Content-Type', 'image/jpeg');
       res.setHeader('Content-Length', String(cover.length));
@@ -50,7 +48,7 @@ export default async function deliveryPreview(req: PreviewRequest, res: PreviewR
     const title = escapeHtml(delivery.title);
     const description = escapeHtml(`Entrega exclusiva para ${delivery.client}`);
     const canonical = `${siteOrigin}/entregas/${slug}`;
-    const image = escapeHtml(`${canonical}?previewImage=1&v=${encodeURIComponent(delivery.updatedAt || '1')}`);
+    const image = escapeHtml(`${siteOrigin}/api/delivery-preview?slug=${slug}&previewImage=1&v=${encodeURIComponent(delivery.updatedAt || '1')}`);
     const tags = `<title>${title}</title>
 <meta name="robots" content="noindex, nofollow, noarchive" />
 <meta name="description" content="${description}" />
@@ -68,15 +66,9 @@ export default async function deliveryPreview(req: PreviewRequest, res: PreviewR
 <meta name="twitter:title" content="${title}" />
 <meta name="twitter:description" content="${description}" />
 <meta name="twitter:image" content="${image}" />`;
-    // Serve the built React page with metadata already present, regardless of user-agent.
-    const shell = await readFile(join(process.cwd(), 'dist', 'index.html'), 'utf8');
-    const html = shell
-      .replace(/<title\b[^>]*>[\s\S]*?<\/title>/gi, '')
-      .replace(/<meta\b[^>]*(?:property|name)=["'](?:og:[^"']*|twitter:[^"']*|description|robots)["'][^>]*>/gi, '')
-      .replace('</head>', `${tags}\n</head>`);
-    res.status(200).send(html);
+    res.status(200).send(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8" />${tags}</head><body><h1>${title}</h1><p>${description}</p><a href="${canonical}">Abrir entrega</a></body></html>`);
   } catch (error) {
     console.error('[delivery-preview] Falha ao carregar prévia', error);
-    res.status(502).send('Não foi possível carregar a entrega. Tente novamente.');
+    res.status(502).send('Não foi possível carregar a prévia.');
   }
 }

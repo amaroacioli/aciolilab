@@ -1,1 +1,1 @@
-export { default } from '../src/server/delivery-preview';
+export { default } from '../src/server/delivery-preview.js';
