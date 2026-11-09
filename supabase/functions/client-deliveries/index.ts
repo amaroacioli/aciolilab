@@ -12,14 +12,15 @@ const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SE
 const signingKey = new TextEncoder().encode(Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 const bucket = 'client-delivery-videos';
 const imageBucket = 'client-delivery-images';
-const imageExtensions: Record<string, string> = Object.assign(Object.create(null), { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' });
+const imageExtensions: Record<string, string> = Object.assign(Object.create(null), { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif' });
+const isHeic = (mime: string) => mime === 'image/heic' || mime === 'image/heif';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const slugPattern = /^[a-z0-9][a-z0-9-]{1,78}[a-z0-9]$/;
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' } });
 const validPath = (path: string, id: string) => new RegExp(`^${id}/[0-9a-f-]{36}\\.(mp4|mov|webm|ogg)$`, 'i').test(path);
 
 function cleanImage(asset: any, id: string, format: 'feed' | 'story' | 'avatar' | 'photo') {
-  if (!asset || !imageExtensions[asset.mime] || typeof asset.path !== 'string' || !new RegExp(`^${id}/${format}-[0-9a-f-]{36}\\.${imageExtensions[asset.mime]}$`, 'i').test(asset.path) || typeof asset.fileName !== 'string' || !asset.fileName || asset.fileName.length > 255 || !Number.isInteger(asset.size) || asset.size < 1 || asset.size > (format === 'avatar' ? 5242880 : 52428800) || !Number.isInteger(asset.width) || !Number.isInteger(asset.height) || asset.width < 1 || asset.height < 1 || ((format === 'feed' || format === 'story') && (asset.width !== 1080 || asset.height !== (format === 'feed' ? 1350 : 1920)))) throw new Error('INVALID_IMAGE');
+  if (!asset || !imageExtensions[asset.mime] || (format !== 'photo' && isHeic(asset.mime)) || typeof asset.path !== 'string' || !new RegExp(`^${id}/${format}-[0-9a-f-]{36}\\.${imageExtensions[asset.mime]}$`, 'i').test(asset.path) || typeof asset.fileName !== 'string' || !asset.fileName || asset.fileName.length > 255 || !Number.isInteger(asset.size) || asset.size < 1 || asset.size > (format === 'avatar' ? 5242880 : 52428800) || !Number.isInteger(asset.width) || !Number.isInteger(asset.height) || asset.width < 1 || asset.height < 1 || ((format === 'feed' || format === 'story') && (asset.width !== 1080 || asset.height !== (format === 'feed' ? 1350 : 1920)))) throw new Error('INVALID_IMAGE');
   return { path: asset.path, fileName: asset.fileName, mime: asset.mime, size: asset.size, width: asset.width, height: asset.height };
 }
 async function withImageUrls(asset: any) {
@@ -41,6 +42,7 @@ async function withVideoUrls(row: any) {
       result.videoUrl = data.signedUrl;
     }
     if (item.photo) result.photo = await withImageUrls(item.photo);
+    if (item.photoPreview) result.photoPreview = await withImageUrls(item.photoPreview);
     if (item.artwork) result.artwork = { feed: await withImageUrls(item.artwork.feed), story: await withImageUrls(item.artwork.story) };
     return result;
   }));
@@ -88,7 +90,7 @@ serve(async req => {
       return response({ deliveries: await Promise.all(data.map(withVideoUrls)) });
     }
     if (action === 'upload-image') {
-      if (!uuid.test(body.id || '') || !['feed', 'story', 'avatar', 'photo'].includes(body.format) || !imageExtensions[body.mime]) return response({ error: 'Imagem inválida. Use JPG, PNG ou WebP.' }, 400);
+      if (!uuid.test(body.id || '') || !['feed', 'story', 'avatar', 'photo'].includes(body.format) || !imageExtensions[body.mime] || (body.format !== 'photo' && isHeic(body.mime))) return response({ error: 'Imagem inválida. Use JPG, PNG ou WebP; HEIC/HEIF é aceito apenas na entrega de fotos.' }, 400);
       const path = `${body.id}/${body.format}-${crypto.randomUUID()}.${imageExtensions[body.mime]}`;
       const { data, error } = await db.storage.from(imageBucket).createSignedUploadUrl(path);
       if (error) throw error;
@@ -123,8 +125,10 @@ serve(async req => {
           if (!Object.keys(artwork).length) return response({ error: 'Adicione uma imagem de Feed ou Story a cada arte.' }, 400);
         }
         const photo = item.photo ? cleanImage(item.photo, d.id, 'photo') : undefined;
+        const photoPreview = item.photoPreview ? cleanImage(item.photoPreview, d.id, 'photo') : undefined;
+        if ((photoPreview && (!photo || !isHeic(photo.mime) || photoPreview.mime !== 'image/jpeg')) || (photo && isHeic(photo.mime) && !photoPreview)) return response({ error: 'Cada foto HEIC precisa do original e de uma prévia JPG válida.' }, 400);
         if (!item.videoPath && !artwork && !photo && !item.description.trim()) return response({ error: 'Cada bloco precisa de vídeo, arte, foto ou explicação.' }, 400);
-        items.push({ id: item.id, title: item.title.trim(), description: item.description, caption: item.caption || '', ...(photo ? { photo } : {}), ...(artwork ? { artwork } : {}), ...(item.videoPath ? { videoPath: item.videoPath, fileName: item.fileName || 'video', videoSize: Number(item.videoSize) || 0 } : {}) });
+        items.push({ id: item.id, title: item.title.trim(), description: item.description, caption: item.caption || '', ...(photo ? { photo } : {}), ...(photoPreview ? { photoPreview } : {}), ...(artwork ? { artwork } : {}), ...(item.videoPath ? { videoPath: item.videoPath, fileName: item.fileName || 'video', videoSize: Number(item.videoSize) || 0 } : {}) });
       }
       if (d.type === 'artwork' && d.published && !items.some(item => item.artwork)) return response({ error: 'Adicione pelo menos uma arte antes de publicar uma entrega de criativos.' }, 400);
       if (d.type === 'photo' && d.published && !items.some(item => item.photo)) return response({ error: 'Adicione pelo menos uma foto antes de publicar esta entrega.' }, 400);
@@ -169,7 +173,7 @@ serve(async req => {
     return response({ error: 'Operação inválida.' }, 400);
   } catch (error) {
     if (error instanceof SyntaxError) return response({ error: 'Requisição inválida.' }, 400);
-    if (error instanceof Error && error.message === 'INVALID_IMAGE') return response({ error: 'Imagem inválida. Use JPG, PNG ou WebP. Fotos: até 50 MB, sem restrição de proporção; Feed: 1080 × 1350; Story: 1080 × 1920; perfil: até 5 MB.' }, 400);
+    if (error instanceof Error && error.message === 'INVALID_IMAGE') return response({ error: 'Imagem inválida. Use JPG, PNG ou WebP; na entrega de fotos, também HEIC/HEIF com prévia JPG. Fotos: até 50 MB; Feed: 1080 × 1350; Story: 1080 × 1920; perfil: até 5 MB.' }, 400);
     console.error('[client-deliveries] Falha na operação', { message: error instanceof Error ? error.message : String(error) });
     return response({ error: 'Não foi possível concluir a operação. Tente novamente.' }, 500);
   }

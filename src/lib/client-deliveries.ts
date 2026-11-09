@@ -9,6 +9,7 @@ export interface DeliveryItem {
   description: string;
   artwork?: DeliveryArtwork;
   photo?: SocialAsset;
+  photoPreview?: SocialAsset;
   caption?: string;
   video?: Blob;
   videoPrepared?: boolean;
@@ -129,7 +130,7 @@ export async function listDeliveries(): Promise<ClientDelivery[]> {
     const instagram = draft.instagram ? { ...draft.instagram, avatar: refreshAsset(draft.instagram.avatar, remote?.instagram?.avatar), connectedFeed: remote ? remote.instagram?.connectedFeed : draft.instagram.connectedFeed } : remote?.instagram;
     return { ...draft, instagram, published: remote?.published || false, items: draft.items.map(item => {
       const online = remote?.items.find(entry => entry.id === item.id);
-      return { ...item, photo: refreshAsset(item.photo, online?.photo), videoUrl: remote?.items.find(video => video.videoPath && video.videoPath === item.videoPath)?.videoUrl || item.videoUrl, ...(item.artwork ? { artwork: { feed: refreshAsset(item.artwork.feed, online?.artwork?.feed), story: refreshAsset(item.artwork.story, online?.artwork?.story) } } : {}) };
+      return { ...item, photo: refreshAsset(item.photo, online?.photo), photoPreview: refreshAsset(item.photoPreview, online?.photoPreview), videoUrl: remote?.items.find(video => video.videoPath && video.videoPath === item.videoPath)?.videoUrl || item.videoUrl, ...(item.artwork ? { artwork: { feed: refreshAsset(item.artwork.feed, online?.artwork?.feed), story: refreshAsset(item.artwork.story, online?.artwork?.story) } } : {}) };
     }) };
   });
   return [...merged, ...deliveries.filter(remote => !local.some(draft => draft.id === remote.id))].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -159,6 +160,10 @@ export async function saveDelivery(delivery: ClientDelivery, onProgress?: (messa
         working[index] = { ...working[index], photo: await uploadImage(original.photo, 'photo') };
         await onCheckpoint?.({ items: [...working] });
       }
+      if (original.photoPreview) {
+        working[index] = { ...working[index], photoPreview: await uploadImage(original.photoPreview, 'photo') };
+        await onCheckpoint?.({ items: [...working] });
+      }
       for (const format of ['feed', 'story'] as const) {
         const asset = working[index].artwork?.[format];
         if (asset) {
@@ -182,11 +187,11 @@ export async function saveDelivery(delivery: ClientDelivery, onProgress?: (messa
       }
     }
     checkAbort();
-    const items = working.map(item => ({ id: item.id, title: item.title, description: item.description, caption: item.caption || '', photo: imagePayload(item.photo), videoPath: item.videoPath, fileName: item.fileName, videoSize: item.videoSize, ...(item.artwork ? { artwork: { feed: imagePayload(item.artwork.feed), story: imagePayload(item.artwork.story) } } : {}) }));
+    const items = working.map(item => ({ id: item.id, title: item.title, description: item.description, caption: item.caption || '', photo: imagePayload(item.photo), photoPreview: imagePayload(item.photoPreview), videoPath: item.videoPath, fileName: item.fileName, videoSize: item.videoSize, ...(item.artwork ? { artwork: { feed: imagePayload(item.artwork.feed), story: imagePayload(item.artwork.story) } } : {}) }));
     const profile = instagram ? { handle: instagram.handle, name: instagram.name, bio: instagram.bio, avatar: imagePayload(instagram.avatar) } : undefined;
     onProgress?.(delivery.published ? 'Publicando página...' : 'Salvando rascunho online...');
     const { delivery: saved } = await request<{ delivery: ClientDelivery }>({ action: 'save', delivery: { ...delivery, instagram: profile, items, localOnly: undefined } });
-    if ((delivery.type && saved.type !== delivery.type) || items.some(item => (item.artwork && !saved.items.find(entry => entry.id === item.id)?.artwork) || (item.photo && saved.items.find(entry => entry.id === item.id)?.photo?.path !== item.photo.path)) || (profile && (['handle', 'name', 'bio'] as const).some(key => profile[key] !== saved.instagram?.[key]))) throw new Error('O serviço de publicação ainda não confirmou as mídias e configurações da entrega. O rascunho foi mantido para não perder seus dados.');
+    if ((delivery.type && saved.type !== delivery.type) || items.some(item => (item.artwork && !saved.items.find(entry => entry.id === item.id)?.artwork) || (item.photo && saved.items.find(entry => entry.id === item.id)?.photo?.path !== item.photo.path) || (item.photoPreview && saved.items.find(entry => entry.id === item.id)?.photoPreview?.path !== item.photoPreview.path)) || (profile && (['handle', 'name', 'bio'] as const).some(key => profile[key] !== saved.instagram?.[key]))) throw new Error('O serviço de publicação ainda não confirmou as mídias e configurações da entrega. O rascunho foi mantido para não perder seus dados.');
     await discardLocalDeliveryDraft(delivery.id).catch(error => console.warn('[client-deliveries] Página salva, mas a limpeza do rascunho local falhou', error));
     return saved;
   } finally { releaseVideoCompressor(); }
