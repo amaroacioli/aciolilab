@@ -8,6 +8,7 @@ export interface DeliveryItem {
   title: string;
   description: string;
   artwork?: DeliveryArtwork;
+  photo?: SocialAsset;
   caption?: string;
   video?: Blob;
   videoPrepared?: boolean;
@@ -27,13 +28,14 @@ export interface ClientDelivery {
   updatedAt: string;
   published: boolean;
   localOnly?: boolean;
-  type?: 'video' | 'artwork';
+  type?: 'video' | 'artwork' | 'photo';
   instagram?: InstagramProfile;
   items: DeliveryItem[];
 }
 
 export const hasVideo = (item: DeliveryItem) => !!(item.video || item.videoPath || item.videoUrl);
 export const hasArtwork = (item: DeliveryItem) => !!(item.artwork?.feed || item.artwork?.story);
+export const hasPhoto = (item: DeliveryItem) => !!item.photo;
 export const normalizeSlug = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
 export const deliveryLink = (delivery: ClientDelivery) => new URL(`/entregas/${delivery.slug}`, window.location.origin).href;
 export class DeliverySessionError extends Error {}
@@ -127,7 +129,7 @@ export async function listDeliveries(): Promise<ClientDelivery[]> {
     const instagram = draft.instagram ? { ...draft.instagram, avatar: refreshAsset(draft.instagram.avatar, remote?.instagram?.avatar), connectedFeed: remote ? remote.instagram?.connectedFeed : draft.instagram.connectedFeed } : remote?.instagram;
     return { ...draft, instagram, published: remote?.published || false, items: draft.items.map(item => {
       const online = remote?.items.find(entry => entry.id === item.id);
-      return { ...item, videoUrl: remote?.items.find(video => video.videoPath && video.videoPath === item.videoPath)?.videoUrl || item.videoUrl, ...(item.artwork ? { artwork: { feed: refreshAsset(item.artwork.feed, online?.artwork?.feed), story: refreshAsset(item.artwork.story, online?.artwork?.story) } } : {}) };
+      return { ...item, photo: refreshAsset(item.photo, online?.photo), videoUrl: remote?.items.find(video => video.videoPath && video.videoPath === item.videoPath)?.videoUrl || item.videoUrl, ...(item.artwork ? { artwork: { feed: refreshAsset(item.artwork.feed, online?.artwork?.feed), story: refreshAsset(item.artwork.story, online?.artwork?.story) } } : {}) };
     }) };
   });
   return [...merged, ...deliveries.filter(remote => !local.some(draft => draft.id === remote.id))].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -137,10 +139,10 @@ export async function saveDelivery(delivery: ClientDelivery, onProgress?: (messa
   const working = delivery.items.map(item => ({ ...item, ...(item.artwork ? { artwork: { ...item.artwork } } : {}) }));
   let instagram = delivery.instagram ? { ...delivery.instagram } : undefined;
   const checkAbort = () => { if (signal?.aborted) throw new DOMException('Processamento cancelado.', 'AbortError'); };
-  const uploadImage = async (asset: SocialAsset, format: 'feed' | 'story' | 'avatar') => {
+  const uploadImage = async (asset: SocialAsset, format: 'feed' | 'story' | 'avatar' | 'photo') => {
     checkAbort();
     if (!asset.file || asset.path) return asset;
-    onProgress?.(`Enviando ${format === 'avatar' ? 'foto do perfil' : `arte de ${format}`}...`);
+    onProgress?.(`Enviando ${format === 'avatar' ? 'foto do perfil' : format === 'photo' ? `foto ${asset.fileName}` : `arte de ${format}`}...`);
     const { path, token } = await request<{ path: string; token: string }>({ action: 'upload-image', id: delivery.id, format, mime: asset.mime });
     const { error } = await supabase.storage.from('client-delivery-images').uploadToSignedUrl(path, token, asset.file, { contentType: asset.mime });
     if (error) throw new Error(`Falha ao enviar ${asset.fileName}: ${error.message}`);
@@ -153,6 +155,10 @@ export async function saveDelivery(delivery: ClientDelivery, onProgress?: (messa
     }
     for (const [index, original] of delivery.items.entries()) {
       checkAbort();
+      if (original.photo) {
+        working[index] = { ...working[index], photo: await uploadImage(original.photo, 'photo') };
+        await onCheckpoint?.({ items: [...working] });
+      }
       for (const format of ['feed', 'story'] as const) {
         const asset = working[index].artwork?.[format];
         if (asset) {
@@ -176,11 +182,11 @@ export async function saveDelivery(delivery: ClientDelivery, onProgress?: (messa
       }
     }
     checkAbort();
-    const items = working.map(item => ({ id: item.id, title: item.title, description: item.description, caption: item.caption || '', videoPath: item.videoPath, fileName: item.fileName, videoSize: item.videoSize, ...(item.artwork ? { artwork: { feed: imagePayload(item.artwork.feed), story: imagePayload(item.artwork.story) } } : {}) }));
+    const items = working.map(item => ({ id: item.id, title: item.title, description: item.description, caption: item.caption || '', photo: imagePayload(item.photo), videoPath: item.videoPath, fileName: item.fileName, videoSize: item.videoSize, ...(item.artwork ? { artwork: { feed: imagePayload(item.artwork.feed), story: imagePayload(item.artwork.story) } } : {}) }));
     const profile = instagram ? { handle: instagram.handle, name: instagram.name, bio: instagram.bio, avatar: imagePayload(instagram.avatar) } : undefined;
     onProgress?.(delivery.published ? 'Publicando página...' : 'Salvando rascunho online...');
     const { delivery: saved } = await request<{ delivery: ClientDelivery }>({ action: 'save', delivery: { ...delivery, instagram: profile, items, localOnly: undefined } });
-    if ((delivery.type === 'artwork' && saved.type !== 'artwork') || items.some(item => item.artwork && !saved.items.find(entry => entry.id === item.id)?.artwork) || (profile && (['handle', 'name', 'bio'] as const).some(key => profile[key] !== saved.instagram?.[key]))) throw new Error('O serviço de publicação ainda não confirmou as artes e configurações do Instagram. O rascunho foi mantido para não perder seus dados.');
+    if ((delivery.type && saved.type !== delivery.type) || items.some(item => (item.artwork && !saved.items.find(entry => entry.id === item.id)?.artwork) || (item.photo && saved.items.find(entry => entry.id === item.id)?.photo?.path !== item.photo.path)) || (profile && (['handle', 'name', 'bio'] as const).some(key => profile[key] !== saved.instagram?.[key]))) throw new Error('O serviço de publicação ainda não confirmou as mídias e configurações da entrega. O rascunho foi mantido para não perder seus dados.');
     await discardLocalDeliveryDraft(delivery.id).catch(error => console.warn('[client-deliveries] Página salva, mas a limpeza do rascunho local falhou', error));
     return saved;
   } finally { releaseVideoCompressor(); }

@@ -18,8 +18,8 @@ const slugPattern = /^[a-z0-9][a-z0-9-]{1,78}[a-z0-9]$/;
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' } });
 const validPath = (path: string, id: string) => new RegExp(`^${id}/[0-9a-f-]{36}\\.(mp4|mov|webm|ogg)$`, 'i').test(path);
 
-function cleanImage(asset: any, id: string, format: 'feed' | 'story' | 'avatar') {
-  if (!asset || !imageExtensions[asset.mime] || typeof asset.path !== 'string' || !new RegExp(`^${id}/${format}-[0-9a-f-]{36}\\.${imageExtensions[asset.mime]}$`, 'i').test(asset.path) || typeof asset.fileName !== 'string' || !asset.fileName || asset.fileName.length > 255 || !Number.isInteger(asset.size) || asset.size < 1 || asset.size > (format === 'avatar' ? 5242880 : 52428800) || !Number.isInteger(asset.width) || !Number.isInteger(asset.height) || asset.width < 1 || asset.height < 1 || (format !== 'avatar' && (asset.width !== 1080 || asset.height !== (format === 'feed' ? 1350 : 1920)))) throw new Error('INVALID_IMAGE');
+function cleanImage(asset: any, id: string, format: 'feed' | 'story' | 'avatar' | 'photo') {
+  if (!asset || !imageExtensions[asset.mime] || typeof asset.path !== 'string' || !new RegExp(`^${id}/${format}-[0-9a-f-]{36}\\.${imageExtensions[asset.mime]}$`, 'i').test(asset.path) || typeof asset.fileName !== 'string' || !asset.fileName || asset.fileName.length > 255 || !Number.isInteger(asset.size) || asset.size < 1 || asset.size > (format === 'avatar' ? 5242880 : 52428800) || !Number.isInteger(asset.width) || !Number.isInteger(asset.height) || asset.width < 1 || asset.height < 1 || ((format === 'feed' || format === 'story') && (asset.width !== 1080 || asset.height !== (format === 'feed' ? 1350 : 1920)))) throw new Error('INVALID_IMAGE');
   return { path: asset.path, fileName: asset.fileName, mime: asset.mime, size: asset.size, width: asset.width, height: asset.height };
 }
 async function withImageUrls(asset: any) {
@@ -40,6 +40,7 @@ async function withVideoUrls(row: any) {
       if (error) throw error;
       result.videoUrl = data.signedUrl;
     }
+    if (item.photo) result.photo = await withImageUrls(item.photo);
     if (item.artwork) result.artwork = { feed: await withImageUrls(item.artwork.feed), story: await withImageUrls(item.artwork.story) };
     return result;
   }));
@@ -87,7 +88,7 @@ serve(async req => {
       return response({ deliveries: await Promise.all(data.map(withVideoUrls)) });
     }
     if (action === 'upload-image') {
-      if (!uuid.test(body.id || '') || !['feed', 'story', 'avatar'].includes(body.format) || !imageExtensions[body.mime]) return response({ error: 'Imagem inválida. Use JPG, PNG ou WebP.' }, 400);
+      if (!uuid.test(body.id || '') || !['feed', 'story', 'avatar', 'photo'].includes(body.format) || !imageExtensions[body.mime]) return response({ error: 'Imagem inválida. Use JPG, PNG ou WebP.' }, 400);
       const path = `${body.id}/${body.format}-${crypto.randomUUID()}.${imageExtensions[body.mime]}`;
       const { data, error } = await db.storage.from(imageBucket).createSignedUploadUrl(path);
       if (error) throw error;
@@ -102,7 +103,7 @@ serve(async req => {
     }
     if (action === 'save') {
       const d = body.delivery;
-      if (!d || !uuid.test(d.id || '') || typeof d.slug !== 'string' || !slugPattern.test(d.slug) || typeof d.client !== 'string' || !d.client.trim() || d.client.length > 120 || typeof d.title !== 'string' || !d.title.trim() || d.title.length > 180 || typeof d.introduction !== 'string' || d.introduction.length > 20000 || typeof d.nextSteps !== 'string' || d.nextSteps.length > 20000 || typeof d.published !== 'boolean' || !Array.isArray(d.items) || d.items.length > 100 || (d.type !== undefined && !['video', 'artwork'].includes(d.type))) return response({ error: 'Revise os dados e o endereço da entrega.' }, 400);
+      if (!d || !uuid.test(d.id || '') || typeof d.slug !== 'string' || !slugPattern.test(d.slug) || typeof d.client !== 'string' || !d.client.trim() || d.client.length > 120 || typeof d.title !== 'string' || !d.title.trim() || d.title.length > 180 || typeof d.introduction !== 'string' || d.introduction.length > 20000 || typeof d.nextSteps !== 'string' || d.nextSteps.length > 20000 || typeof d.published !== 'boolean' || !Array.isArray(d.items) || d.items.length > 100 || (d.type !== undefined && !['video', 'artwork', 'photo'].includes(d.type))) return response({ error: 'Revise os dados e o endereço da entrega.' }, 400);
       if (d.published && !d.items.length) return response({ error: 'Adicione conteúdo antes de publicar.' }, 400);
       const profile = d.instagram || {};
       const instagram: Record<string, any> = {};
@@ -121,10 +122,12 @@ serve(async req => {
           artwork = { ...(item.artwork.feed ? { feed: cleanImage(item.artwork.feed, d.id, 'feed') } : {}), ...(item.artwork.story ? { story: cleanImage(item.artwork.story, d.id, 'story') } : {}) };
           if (!Object.keys(artwork).length) return response({ error: 'Adicione uma imagem de Feed ou Story a cada arte.' }, 400);
         }
-        if (!item.videoPath && !artwork && !item.description.trim()) return response({ error: 'Cada bloco precisa de vídeo, arte ou explicação.' }, 400);
-        items.push({ id: item.id, title: item.title.trim(), description: item.description, caption: item.caption || '', ...(artwork ? { artwork } : {}), ...(item.videoPath ? { videoPath: item.videoPath, fileName: item.fileName || 'video', videoSize: Number(item.videoSize) || 0 } : {}) });
+        const photo = item.photo ? cleanImage(item.photo, d.id, 'photo') : undefined;
+        if (!item.videoPath && !artwork && !photo && !item.description.trim()) return response({ error: 'Cada bloco precisa de vídeo, arte, foto ou explicação.' }, 400);
+        items.push({ id: item.id, title: item.title.trim(), description: item.description, caption: item.caption || '', ...(photo ? { photo } : {}), ...(artwork ? { artwork } : {}), ...(item.videoPath ? { videoPath: item.videoPath, fileName: item.fileName || 'video', videoSize: Number(item.videoSize) || 0 } : {}) });
       }
       if (d.type === 'artwork' && d.published && !items.some(item => item.artwork)) return response({ error: 'Adicione pelo menos uma arte antes de publicar uma entrega de criativos.' }, 400);
+      if (d.type === 'photo' && d.published && !items.some(item => item.photo)) return response({ error: 'Adicione pelo menos uma foto antes de publicar esta entrega.' }, 400);
       const { data: previous, error: previousError } = await db.from('client_deliveries').select('items').eq('id', d.id).maybeSingle();
       if (previousError) throw previousError;
       const { data, error } = await db.from('client_deliveries').upsert({ id: d.id, delivery_type: d.type || 'video', instagram, slug: d.slug, client: d.client.trim(), title: d.title.trim(), introduction: d.introduction, next_steps: d.nextSteps, items, published: d.published, updated_at: new Date().toISOString() }).select().single();
@@ -166,7 +169,7 @@ serve(async req => {
     return response({ error: 'Operação inválida.' }, 400);
   } catch (error) {
     if (error instanceof SyntaxError) return response({ error: 'Requisição inválida.' }, 400);
-    if (error instanceof Error && error.message === 'INVALID_IMAGE') return response({ error: 'Imagem inválida. Feed: 1080 × 1350; Story: 1080 × 1920; foto do perfil: até 5 MB.' }, 400);
+    if (error instanceof Error && error.message === 'INVALID_IMAGE') return response({ error: 'Imagem inválida. Use JPG, PNG ou WebP. Fotos: até 50 MB, sem restrição de proporção; Feed: 1080 × 1350; Story: 1080 × 1920; perfil: até 5 MB.' }, 400);
     console.error('[client-deliveries] Falha na operação', { message: error instanceof Error ? error.message : String(error) });
     return response({ error: 'Não foi possível concluir a operação. Tente novamente.' }, 500);
   }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowDown, Check, FileText, ImagePlus, Play, Sparkles } from 'lucide-react';
 import { ClientDelivery, DeliveryItem, hasArtwork, hasVideo } from '@/lib/client-deliveries';
 import DeliveryArtworkView from '@/components/DeliveryArtworkView';
+import DeliveryPhotoGallery from '@/components/DeliveryPhotoGallery';
 import InstagramPreviewButton from '@/components/InstagramDeliveryPreview';
 
 function DeliveryVideo({ item }: { item: DeliveryItem }) {
@@ -41,7 +42,8 @@ export default function ClientDeliveryView({ delivery }: { delivery: ClientDeliv
         {(delivery.type === 'artwork' || delivery.items.some(hasArtwork)) && <div className="mt-6"><InstagramPreviewButton delivery={delivery} /></div>}
       </div>
       <div id="entregas" className="space-y-6 scroll-mt-6">
-        {delivery.items.map((item, index) => <section key={item.id} className="overflow-hidden rounded-2xl border border-white/10 bg-[#111419] p-5 md:p-8">
+        <DeliveryPhotoGallery items={delivery.items} />
+        {delivery.items.filter(item => !item.photo).map((item, index) => <section key={item.id} className="overflow-hidden rounded-2xl border border-white/10 bg-[#111419] p-5 md:p-8">
           <div className="mb-6 flex items-start gap-4">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 text-sm text-[#b7dca0]">{String(index + 1).padStart(2, '0')}</span>
             <div><p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-zinc-500">{hasArtwork(item) ? 'Arte / criativo para redes sociais' : hasVideo(item) ? 'Apresentação em vídeo' : 'Guia da entrega'}</p><h2 className="break-words text-xl font-medium md:text-2xl">{item.title}</h2></div>
