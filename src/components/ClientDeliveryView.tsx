@@ -28,7 +28,7 @@ function DeliveryVideo({ item }: { item: DeliveryItem }) {
 export default function ClientDeliveryView({ delivery }: { delivery: ClientDelivery }) {
   return <div className="min-h-screen bg-[#0b0d10] text-zinc-100">
     <header className="mx-auto flex max-w-5xl items-center justify-between border-b border-white/10 px-6 py-7">
-      <AcioliLogo className="h-10 w-32 object-contain md:w-36" />
+      <AcioliLogo className="h-12 w-36 object-contain md:h-14 md:w-40" />
       <span className="text-[10px] uppercase tracking-[0.25em] text-zinc-500">Espaço do cliente</span>
     </header>
     <main className="mx-auto max-w-5xl px-6 pb-12">

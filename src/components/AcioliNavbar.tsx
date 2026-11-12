@@ -33,7 +33,7 @@ export default function AcioliNavbar() {
       <div className="max-w-6xl mx-auto px-6 md:px-12 lg:px-16 flex items-center justify-between">
         {/* Logo */}
         <button type="button" onClick={() => scrollToSection('hero')} className="transition-opacity hover:opacity-80" aria-label="Acioli — início">
-          <AcioliLogo className="h-10 w-32 object-contain md:w-36" />
+          <AcioliLogo className="h-12 w-36 object-contain md:h-14 md:w-40" />
         </button>
 
         {/* Desktop Menu */}
