@@ -3,6 +3,7 @@ import { ArrowDown, Check, FileText, ImagePlus, Play, Sparkles } from 'lucide-re
 import { ClientDelivery, DeliveryItem, hasArtwork, hasVideo } from '@/lib/client-deliveries';
 import DeliveryArtworkView from '@/components/DeliveryArtworkView';
 import DeliveryPhotoGallery from '@/components/DeliveryPhotoGallery';
+import AcioliLogo from '@/components/AcioliLogo';
 import InstagramPreviewButton from '@/components/InstagramDeliveryPreview';
 
 function DeliveryVideo({ item }: { item: DeliveryItem }) {
@@ -27,7 +28,7 @@ function DeliveryVideo({ item }: { item: DeliveryItem }) {
 export default function ClientDeliveryView({ delivery }: { delivery: ClientDelivery }) {
   return <div className="min-h-screen bg-[#0b0d10] text-zinc-100">
     <header className="mx-auto flex max-w-5xl items-center justify-between border-b border-white/10 px-6 py-7">
-      <span className="text-xl font-extrabold tracking-tight">ACIOLI<span className="text-[#b7dca0]">.</span></span>
+      <AcioliLogo className="h-10 w-32 object-contain md:w-36" />
       <span className="text-[10px] uppercase tracking-[0.25em] text-zinc-500">Espaço do cliente</span>
     </header>
     <main className="mx-auto max-w-5xl px-6 pb-12">

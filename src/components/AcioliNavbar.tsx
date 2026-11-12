@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Menu, X } from 'lucide-react';
+import AcioliLogo from '@/components/AcioliLogo';
 
 export default function AcioliNavbar() {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -31,12 +32,9 @@ export default function AcioliNavbar() {
     }`}>
       <div className="max-w-6xl mx-auto px-6 md:px-12 lg:px-16 flex items-center justify-between">
         {/* Logo */}
-        <div 
-          onClick={() => scrollToSection('hero')} 
-          className="cursor-pointer font-bold tracking-tight text-white text-xl hover:opacity-90 transition-opacity"
-        >
-          acioli<span className="text-[#00c868] font-light">.lab</span>
-        </div>
+        <button type="button" onClick={() => scrollToSection('hero')} className="transition-opacity hover:opacity-80" aria-label="Acioli — início">
+          <AcioliLogo className="h-10 w-32 object-contain md:w-36" />
+        </button>
 
         {/* Desktop Menu */}
         <div className="hidden md:flex items-center gap-8">
